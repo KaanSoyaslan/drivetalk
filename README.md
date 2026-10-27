@@ -33,7 +33,7 @@ It runs entirely in the phone's browser. There is no server, no account and no c
 **Conversation**
 - **Live mode:** real-time voice conversation with Gemini Live. Natural voices, instant replies, and you can interrupt at any time.
 - **Classic mode:** uses the phone's own speech recognition and voice. The app switches to it automatically if Live mode can't connect.
-- **Four characters:** Sam, Mia, Robo and Mochi, each with their own look, personality and voice. They react as you talk: a hand to the ear while listening, a hand on the chin while thinking, and moving mouth, hands and eyebrows while speaking.
+- **Eight characters:** Sam, Mia, Emma, Robo, Tiko the cat, Max the dog, Ollie the owl and Zip the alien, each with their own look, personality and voice. They react as you talk: a hand to the ear while listening, a hand on the chin while thinking, and moving mouth, hands and eyebrows while speaking.
 - **Topics and role-plays:**
   - Conversation: free talk, today's news, fun facts, daily life, work and travel.
   - Role-plays: a job interview, the airport, a hotel, a restaurant, the doctor, customer service and a shop.
@@ -51,6 +51,7 @@ It runs entirely in the phone's browser. There is no server, no account and no c
 **Built for the car**
 - Fully voice-controlled. The reply comes automatically when you stop talking.
 - Sound meters along both edges of the screen show at a glance that your voice is coming through.
+- **Microphone choice (Live mode):** use the phone's own microphone instead of the car's Bluetooth one (or any other), test it with a level meter and a chime, and the choice is saved.
 - Steering-wheel and headset media buttons: play/pause, next topic, repeat.
 - Keeps the screen awake and reconnects automatically after a lost connection.
 
@@ -99,6 +100,7 @@ Then open <http://localhost:8080>.
 |---|---|
 | `js/app.js` | Session flow (Classic and Live), screens, progress, settings |
 | `js/live.js` | Gemini Live client: audio streaming, playback, end-of-speech fallback, reconnection |
+| `js/devices.js` | Microphone and speaker choice, audio test |
 | `js/pcm-worklet.js` | Converts microphone audio to 16 kHz PCM |
 | `js/tutor.js` | Prompts for the partner, coach, quiz and summary; topics |
 | `js/characters.js` | Characters: look, personality, voice and animation rig |
@@ -118,6 +120,7 @@ It is built with plain HTML, CSS and JavaScript, with no framework and no build 
 - An internet connection is required.
 - The free Gemini tier has per-minute and daily limits; you can check them in AI Studio.
 - Whether the steering-wheel buttons work depends on the car and the phone.
+- On Android, the system decides where Live mode audio goes. With echo cancellation on, it is treated like a phone call (with a Bluetooth car kit, usually the car's microphone and call-quality sound). With it off, the sound plays like music and the selected phone microphone is used, but you can't interrupt the character while it speaks.
 
 ---
 
@@ -141,7 +144,7 @@ Sunucu, hesap ya da ücret yok. Sohbetler, kendi anahtarınla Google Gemini API'
 **Sohbet**
 - **Canlı mod:** Gemini Live ile gerçek zamanlı sesli sohbet. Doğal ses, anında cevap; istediğin an sözünü kesebilirsin.
 - **Klasik mod:** Telefonun kendi konuşma tanıması ve sesi. Canlı mod bağlanamazsa uygulama otomatik olarak buna geçer.
-- **Dört karakter:** Sam, Mia, Robo ve Mochi. Her birinin görünüşü, kişiliği ve sesi farklı. Dinlerken elini kulağına götürür, düşünürken elini çenesine koyar, konuşurken ağzı, elleri ve kaşları oynar.
+- **Sekiz karakter:** Sam, Mia, Emma, Robo, kedi Tiko, köpek Max, baykuş Ollie ve uzaylı Zip. Her birinin görünüşü, kişiliği ve sesi farklı. Dinlerken elini kulağına götürür, düşünürken elini çenesine koyar, konuşurken ağzı, elleri ve kaşları oynar.
 - **Konular ve rol yapma:**
   - Sohbet: serbest sohbet, günün haberleri, ilginç bilgiler, günlük hayat, iş ve seyahat.
   - Rol yapma: iş mülakatı, havalimanı, otel, restoran, doktor, müşteri hizmetleri ve mağaza.
@@ -159,6 +162,7 @@ Sunucu, hesap ya da ücret yok. Sohbetler, kendi anahtarınla Google Gemini API'
 **Araba için tasarlandı**
 - Tamamen sesle kontrol edilir. Sustuğunda cevap kendiliğinden gelir.
 - Ekranın iki kenarındaki ses göstergesi, sesinin gittiğini göz ucuyla gösterir.
+- **Mikrofon seçimi (Canlı mod):** Arabanın Bluetooth mikrofonu yerine telefonun kendi mikrofonunu (ya da başka birini) seç, seviye göstergesi ve zil sesiyle dene; seçimin saklanır.
 - Direksiyon ve kulaklık tuşları: duraklat/devam, yeni konu, tekrar.
 - Ekranı açık tutar, bağlantı koparsa kendiliğinden yeniden bağlanır.
 
@@ -207,3 +211,4 @@ Ardından <http://localhost:8080> adresini aç.
 - İnternet bağlantısı gerekir.
 - Gemini'nin ücretsiz katmanında dakikalık ve günlük sınırlar var; AI Studio'dan görebilirsin.
 - Direksiyon tuşlarının çalışması arabaya ve telefona göre değişir.
+- Android'de Canlı mod sesinin nereden çıkacağına sistem karar verir. Yankı engelleme açıkken telefon görüşmesi gibi davranır (Bluetooth araç kitinde genelde arabanın mikrofonu ve görüşme kalitesinde ses). Kapalıyken ses müzik gibi çalar ve seçtiğin telefon mikrofonu kullanılır, ama karakter konuşurken sözünü kesemezsin.

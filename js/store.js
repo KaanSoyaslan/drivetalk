@@ -18,6 +18,11 @@ export const DEFAULT_SETTINGS = {
   liveModel: 'gemini-3.8-live',
   liveVoice: 'Puck',
   bargeIn: true,
+  voiceProcessing: true, // Canlı mod mikrofonunda yankı engelleme + gürültü azaltma
+  micId: '', // '' = telefon seçer (devices.js)
+  micLabel: '',
+  speakerId: '',
+  speakerLabel: '',
   mediaKeys: true,
   level: 'B1',
   topic: 'free',
@@ -53,7 +58,9 @@ function write(key, value) {
 }
 
 export function loadSettings() {
-  return { ...DEFAULT_SETTINGS, ...read(KEYS.settings, {}) };
+  const settings = { ...DEFAULT_SETTINGS, ...read(KEYS.settings, {}) };
+  if (settings.character === 'mochi') settings.character = 'tiko'; // kedinin eski adı
+  return settings;
 }
 
 export function saveSettings(settings) {

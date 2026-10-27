@@ -13,6 +13,7 @@ import { LiveClient, LIVE_VOICES } from './live.js';
 import { MockLiveSocket } from './live-mock.js';
 import { MediaKeys } from './media-keys.js';
 import { CHARACTERS, characterOf, characterSVG } from './characters.js';
+import { AudioTest, canListDevices, canPickSpeaker, listDevices, micName, resolveDevice } from './devices.js';
 import { parseCommand } from './commands.js';
 
 const $ = (id) => document.getElementById(id);
@@ -69,7 +70,7 @@ function stateHint(name) {
   const live = session instanceof LiveSession;
   switch (name) {
     case 'listening': return live ? 'Konuş; sustuğunda cevap verir.' : 'Konuş; sustuğunda kendiliğinden gönderilir.';
-    case 'speaking': return live && settings.bargeIn ? 'Araya girmek için konuşman yeterli.' : 'Atlamak için karaktere dokun.';
+    case 'speaking': return live && settings.bargeIn && settings.voiceProcessing ?'Araya girmek için konuşman yeterli.' : 'Atlamak için karaktere dokun.';
     case 'paused': return live ? 'Devam için karaktere dokun.' : 'Devam için karaktere dokun ya da "continue" de.';
     case 'summary': return 'Hemen bitirmek için Bitir\'e bas.';
     default: return '';
@@ -743,6 +744,9 @@ class LiveSession extends Session {
     try {
       await this.loadMaterial();
       ui.state('thinking', 'Canlı moda bağlanıyor…');
+      const micId = settings.typeMode ? '' : await resolveDevice('audioinput', settings.micId, settings.micLabel);
+      if (micId === null) ui.error('Seçtiğin mikrofon bağlı değil; telefonun seçtiği mikrofon kullanılıyor.');
+      const speakerId = canPickSpeaker() ? await resolveDevice('audiooutput', settings.speakerId, settings.speakerLabel) : '';
       this.client = new LiveClient({
         apiKey: settings.apiKey.trim(),
         model: settings.liveModel,
@@ -750,7 +754,11 @@ class LiveSession extends Session {
         system: liveSystem(settings, this.profile, this.material),
         tools: liveTools(settings),
         silenceMs: clamp(settings.graceMs, 700, 2500),
-        bargeIn: settings.bargeIn,
+        // Yankı engelleme kapalıyken karakter kendi sesini duymasın: o konuşurken mikrofon gönderilmez.
+        bargeIn: settings.bargeIn && settings.voiceProcessing,
+        voiceProcessing: settings.voiceProcessing,
+        micId: micId || '',
+        speakerId: speakerId || '',
         captureMic: !settings.typeMode,
         audio: this.audio,
         socketFactory: isDemo() ? () => new MockLiveSocket() : null,
@@ -1282,6 +1290,8 @@ function showView(name) {
   if (name === 'history') renderHistory();
   if (name === 'progress') renderProgress();
   if (name === 'talk') refreshSetup();
+  if (name === 'settings') fillDevices();
+  else if (audioTest.running) stopAudioTest();
   document.querySelector('main').scrollTop = 0;
 }
 for (const tab of document.querySelectorAll('.tabs button')) {
@@ -1560,9 +1570,91 @@ function fillSettingsForm() {
     if (input.type === 'checkbox') input.checked = Boolean(settings[input.name]);
     else input.value = settings[input.name];
   }
+  form.elements.bargeIn.disabled = !settings.voiceProcessing; // yankı engelleme yokken araya girilemez
   $('rateOut').textContent = `${Number(settings.rate).toFixed(2)}×`;
   $('graceOut').textContent = `${(settings.graceMs / 1000).toFixed(2)} sn`;
 }
+
+// Mikrofon ve hoparlör listesi. Kayıtlı aygıt şu an bağlı değilse de listede kalır ki seçim kaybolmasın.
+async function fillDevices() {
+  if (!canListDevices()) {
+    $('micSelect').disabled = true;
+    $('micNote').textContent = 'Bu tarayıcı mikrofon seçmeye izin vermiyor.';
+    return;
+  }
+  const fill = async (select, kind, id, label, auto) => {
+    const devices = await listDevices(kind).catch(() => []);
+    const options = [el('option', { value: '' }, auto), ...devices.map((d) => el('option', { value: d.id, 'data-label': d.label }, d.name))];
+    if (id && !devices.some((d) => d.id === id || (label && d.label === label))) {
+      options.push(el('option', { value: id, 'data-label': label }, `${label || 'Kayıtlı aygıt'} (şu an bağlı değil)`));
+    }
+    select.replaceChildren(...options);
+    select.value = devices.find((d) => d.id === id || (label && d.label === label))?.id ?? id;
+    return devices;
+  };
+  const mics = await fill($('micSelect'), 'audioinput', settings.micId, settings.micLabel, 'Otomatik (telefon seçer)');
+  if (mics.every((d) => !d.label)) { // izin yokken tarayıcı aygıtları gizler
+    $('micNote').textContent = 'Mikrofonları listelemek için aşağıdaki Dene\'ye bas ve mikrofon izni ver.';
+  } else {
+    $('micNote').textContent = 'Seçimin saklanır. Klasik modda mikrofonu telefon seçer.';
+  }
+  const speakers = canPickSpeaker()
+    ? await fill($('speakerSelect'), 'audiooutput', settings.speakerId, settings.speakerLabel, 'Otomatik (sistem seçer)')
+    : [];
+  $('speakerRow').hidden = speakers.length === 0;
+}
+
+function saveDevice(select, idKey, labelKey) {
+  const option = select.selectedOptions[0];
+  settings[idKey] = select.value;
+  settings[labelKey] = select.value ? option?.dataset.label || '' : '';
+  saveSettings(settings);
+  $('settingsSaved').textContent = 'Kaydedildi';
+  clearTimeout(savedTimer);
+  savedTimer = setTimeout(() => { $('settingsSaved').textContent = ''; }, 1500);
+}
+
+$('micSelect').addEventListener('change', (e) => saveDevice(e.target, 'micId', 'micLabel'));
+$('speakerSelect').addEventListener('change', (e) => saveDevice(e.target, 'speakerId', 'speakerLabel'));
+navigator.mediaDevices?.addEventListener?.('devicechange', () => fillDevices());
+
+const audioTest = new AudioTest();
+let audioTestTimer = 0;
+
+function stopAudioTest(note) {
+  audioTest.stop();
+  clearInterval(audioTestTimer);
+  $('testMeterFill').style.setProperty('--level', 0);
+  $('testAudio').textContent = 'Dene';
+  if (note) $('testNote').textContent = note;
+}
+
+$('testAudio').addEventListener('click', async () => {
+  if (audioTest.running) {
+    stopAudioTest();
+    return;
+  }
+  if (session?.active) {
+    $('testNote').textContent = 'Önce oturumu bitir.';
+    return;
+  }
+  $('testAudio').textContent = 'Durdur';
+  $('testNote').textContent = 'Mikrofon açılıyor…';
+  try {
+    const label = await audioTest.start(settings);
+    if (!audioTest.running) return;
+    const name = label ? `Açık mikrofon: ${micName(label)}. ` : '';
+    $('testNote').textContent = `${name}Konuş: çubuk oynuyorsa seni duyuyor. Zil nereden geldiyse karakterin sesi de oradan gelir.`;
+    const endsAt = Date.now() + 10000;
+    audioTestTimer = setInterval(() => {
+      $('testMeterFill').style.setProperty('--level', levelToUnit(audioTest.level()).toFixed(3));
+      if (Date.now() > endsAt) stopAudioTest();
+    }, 60);
+    fillDevices(); // izin yeni verildiyse aygıt adları artık görünür
+  } catch (err) {
+    stopAudioTest(err.name === 'NotAllowedError' ? 'Mikrofon izni verilmedi.' : `Mikrofon açılamadı (${err.name || err.message}).`);
+  }
+});
 
 let savedTimer = 0;
 form.addEventListener('input', (e) => {
@@ -1646,6 +1738,7 @@ renderTopics();
 fillVoices();
 speaker.onVoicesChanged(fillVoices);
 fillSettingsForm();
+fillDevices();
 renderFocus();
 refreshSetup();
 ui.state('idle');

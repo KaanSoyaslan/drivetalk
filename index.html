@@ -184,6 +184,31 @@
           </label>
         </div>
 
+        <h2 class="section-title">Mikrofon ve hoparlör</h2>
+        <div class="settings-card">
+          <label class="setting">
+            <span class="setting-label">Mikrofon (Canlı mod)</span>
+            <select id="micSelect"></select>
+            <span id="micNote" class="setting-desc">Seçimin saklanır. Klasik modda mikrofonu telefon seçer.</span>
+          </label>
+          <label id="speakerRow" class="setting" hidden>
+            <span class="setting-label">Hoparlör (Canlı mod)</span>
+            <select id="speakerSelect"></select>
+          </label>
+          <label class="setting toggle-row">
+            <span class="setting-label">Yankı engelleme (Canlı mod)<span class="setting-desc">Açık: sözünü kesebilirsin, ama Android sesi telefon görüşmesi gibi yönlendirir. Kapalı: ses müzik gibi, genelde daha net çalar; karakter konuşurken mikrofon dinlemez.</span></span>
+            <input class="switch" name="voiceProcessing" type="checkbox">
+          </label>
+          <div class="setting">
+            <span class="setting-label">Mikrofonu ve sesi dene</span>
+            <span class="inline">
+              <span class="test-meter" aria-hidden="true"><span id="testMeterFill"></span></span>
+              <button id="testAudio" class="btn" type="button">Dene</button>
+            </span>
+            <span id="testNote" class="setting-desc" aria-live="polite">Konuş: çubuk oynuyorsa mikrofon seni duyuyor. Zil nereden geliyorsa karakterin sesi de oradan gelir.</span>
+          </div>
+        </div>
+
         <h2 class="section-title">Sohbet</h2>
         <div class="settings-card">
           <label class="setting">

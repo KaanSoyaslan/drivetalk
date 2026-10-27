@@ -1,5 +1,5 @@
 // Uygulama dosyalarını önbelleğe alır; önce ağdan dener ki güncellemeler hemen gelsin.
-const CACHE = 'drivetalk-v5';
+const CACHE = 'drivetalk-v6';
 const ASSETS = [
   './',
   'index.html',
@@ -16,6 +16,7 @@ const ASSETS = [
   'js/pcm-worklet.js',
   'js/media-keys.js',
   'js/characters.js',
+  'js/devices.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

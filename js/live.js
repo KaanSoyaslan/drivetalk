@@ -1,6 +1,8 @@
 // Gemini Live API istemcisi (gerçek zamanlı sesli sohbet). Mikrofon sesi WebSocket üzerinden
 // akar, Sam'in sesi geldikçe çalınır. Bağlantı ~10 dakikada bir yenilenir; oturum
 // "session resumption" ile kaldığı yerden sürer, uzun sohbetler için bağlam sıkıştırılır.
+import { micConstraints } from './devices.js';
+
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
@@ -9,6 +11,7 @@ const MAX_RECONNECTS = 5;
 const START_BUFFER_S = 0.15; // her cevabın başında küçük tampon: mobil ağda parçalar gecikirse ses kesilmesin
 const REPLY_TIMEOUT_MS = 12000; // Sam seni duyduktan sonra bu sürede cevap vermezse bağlantı yenilenir
 const LEVEL_STEP_MS = 50; // worklet'in seviye gönderme aralığı
+const ECHO_TAIL_MS = 350; // sözünü kesme kapalıyken Sam susunca mikrofon bu kadar (+ çıkış gecikmesi) daha kapalı kalır
 
 export const LIVE_VOICES = [
   ['Puck', 'Puck – erkek, neşeli'],
@@ -70,7 +73,8 @@ export class LiveClient {
     return ctx;
   }
 
-  // config: { apiKey, model, voice, system, tools, silenceMs, bargeIn, captureMic, audio, socketFactory }
+  // config: { apiKey, model, voice, system, tools, silenceMs, bargeIn, voiceProcessing, micId, speakerId,
+  //          captureMic, audio, socketFactory }
   // events: onLearnerText, onPartnerText, onSpeaking, onInterrupted, onTurnComplete, onToolCall,
   //         onReconnecting, onReconnected, onClosed, onMicProblem
   constructor(config, events = {}) {
@@ -87,6 +91,7 @@ export class LiveClient {
     this.micMuted = false;
     this.micLevel = 0;
     this.speaking = false;
+    this.echoUntil = 0;
     this.turnActive = false;
     this.turnHasAudio = false;
     this.dropAudio = false;
@@ -110,6 +115,7 @@ export class LiveClient {
       if (ctx.state === 'suspended' && !this.closed) ctx.resume().catch(() => {});
     };
     await ctx.resume().catch(() => {});
+    if (this.config.speakerId && ctx.setSinkId) await ctx.setSinkId(this.config.speakerId).catch(() => {});
     this.output = ctx.createGain();
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 512;
@@ -121,10 +127,14 @@ export class LiveClient {
   }
 
   async startMic() {
+    const { micId = '', voiceProcessing = true } = this.config;
     try {
-      this.stream = await navigator.mediaDevices.getUserMedia({
-        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
-      });
+      this.stream = await navigator.mediaDevices.getUserMedia(micConstraints({ deviceId: micId, processing: voiceProcessing }))
+        .catch((err) => {
+          if (!micId || err.name !== 'OverconstrainedError') throw err;
+          this.events.onMicProblem?.('Seçtiğin mikrofon açılamadı; telefonun seçtiği mikrofon kullanılıyor.');
+          return navigator.mediaDevices.getUserMedia(micConstraints({ processing: voiceProcessing }));
+        });
     } catch (err) {
       throw new LiveError('mic', err.name === 'NotAllowedError' ? 'Mikrofon izni verilmedi.' : 'Mikrofona erişilemiyor.');
     }
@@ -160,7 +170,7 @@ export class LiveClient {
   trackSpeech(rms) {
     // Gürültü tabanı sessizlikte hızla iner, seste yavaşça yükselir; araç gürültüsü konuşmayı bastırmasın diye sınırlı.
     this.noise = rms < this.noise ? this.noise * 0.6 + rms * 0.4 : Math.min(0.06, this.noise * 0.995 + rms * 0.005);
-    const voiced = rms > Math.max(this.noise * 2.5, 0.008);
+    const voiced = rms > Math.max(this.noise * 2.5, 0.008) && !this.hearsEcho();
     if (voiced && !this.micMuted) {
       this.voiceMs += LEVEL_STEP_MS;
       this.quietMs = 0;
@@ -366,9 +376,14 @@ export class LiveClient {
     return false;
   }
 
+  // Sözünü kesme kapalıyken Sam konuşurken (ve sesinin hoparlörden bitmesine kadar) mikrofon
+  // yalnızca onun yankısını duyar; bu ses gönderilmez, konuşma sayılmaz.
+  hearsEcho() {
+    return !this.config.bargeIn && (this.speaking || performance.now() < this.echoUntil);
+  }
+
   sendAudio(buffer) {
-    if (this.micMuted) return;
-    if (!this.config.bargeIn && this.speaking) return; // hoparlör yankısı Sam'i durdurmasın
+    if (this.micMuted || this.hearsEcho()) return;
     this.send({ realtimeInput: { audio: { data: toBase64(buffer), mimeType: `audio/pcm;rate=${INPUT_RATE}` } } });
   }
 
@@ -454,6 +469,8 @@ export class LiveClient {
     const speaking = this.sources.size > 0 || (this.turnActive && this.turnHasAudio);
     if (speaking !== this.speaking) {
       this.speaking = speaking;
+      // Bluetooth hoparlör sesi birkaç yüz ms geriden çalar; o kuyruk da yankı sayılır.
+      if (!speaking) this.echoUntil = performance.now() + ECHO_TAIL_MS + (this.ctx.outputLatency || 0) * 1000;
       this.events.onSpeaking?.(speaking);
     }
     this.checkIdle();

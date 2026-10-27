@@ -226,7 +226,7 @@ dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
   background: var(--surface); color: var(--text);
 }
 .char-card.selected { border-color: var(--accent); background: linear-gradient(170deg, var(--accent-soft), transparent 70%), var(--surface); }
-.char-card .character { width: 112px; }
+.char-card .character { width: 100px; }
 .char-card b { font-size: 16px; margin-top: 4px; }
 .char-card small { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
 .char-card .voice { color: var(--accent); font-size: 11.5px; font-weight: 700; margin-top: 4px; }
@@ -355,7 +355,9 @@ dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
   transform-box: fill-box; transform-origin: center;
   transform: scaleY(calc(.06 + var(--open, 0) * .94)); opacity: calc(var(--open, 0) * 6);
 }
-.char-robot .tongue { display: none; }
+.char-robot .tongue, .char-owl .tongue, .char-owl .char-smile { display: none; }
+.char-glasses { fill: rgba(255, 255, 255, .12); stroke: #2b2730; stroke-width: 4; stroke-linecap: round; }
+.char-glasses path { fill: none; }
 
 .hand { transition: transform .45s cubic-bezier(.3, 1.35, .5, 1); }
 .hand-l { transform: translate(74px, 240px); }
@@ -375,8 +377,8 @@ dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
   88% { transform: translate(166px, 240px) rotate(0deg); }
 }
 
-.robo-antenna { animation: antenna 1.8s ease-in-out infinite; }
-.robo-light { animation: antenna 2.4s ease-in-out infinite; }
+.blink-light { animation: antenna 1.8s ease-in-out infinite; }
+.blink-light.late { animation-delay: .9s; }
 @keyframes antenna { 50% { opacity: .35; } }
 
 .char-think, .char-zzz { opacity: 0; transition: opacity .3s; }
@@ -391,7 +393,7 @@ dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
 .char-zzz text:nth-child(3) { font-size: 28px; }
 
 @media (prefers-reduced-motion: reduce) {
-  .char-all, .char-eyes, .robo-antenna, .robo-light, .char-think circle, .character[data-state=idle] .hand-r { animation: none; }
+  .char-all, .char-eyes, .blink-light, .char-think circle, .character[data-state=idle] .hand-r { animation: none; }
 }
 
 /* ---------- Ekran kenarı ses göstergesi ---------- */
@@ -572,6 +574,13 @@ body[data-state=speaking] .edge-meter span { --meter-color: var(--speaking); }
 }
 .switch:checked { background: var(--accent); border-color: var(--accent); }
 .switch:checked::after { transform: translateX(20px); }
+.switch:disabled { opacity: .4; cursor: default; }
+.toggle-row:has(.switch:disabled) { cursor: default; }
+.test-meter { flex: 1; align-self: center; height: 12px; border-radius: 6px; background: var(--surface-3); overflow: hidden; }
+.test-meter span {
+  display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--good), var(--accent));
+  transform-origin: left; transform: scaleX(var(--level, 0)); transition: transform .08s linear;
+}
 .settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .focus-list { margin: 0; padding-left: 18px; color: var(--text-2); }
 .saved { color: var(--good); min-height: 1.4em; text-align: center; font-weight: 600; margin: 12px 0 0; }
