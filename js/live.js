@@ -6,6 +6,9 @@ const INPUT_RATE = 16000;
 const OUTPUT_RATE = 24000;
 const SETUP_TIMEOUT_MS = 15000;
 const MAX_RECONNECTS = 5;
+const START_BUFFER_S = 0.15; // her cevabın başında küçük tampon: mobil ağda parçalar gecikirse ses kesilmesin
+const REPLY_TIMEOUT_MS = 12000; // Sam seni duyduktan sonra bu sürede cevap vermezse bağlantı yenilenir
+const LEVEL_STEP_MS = 50; // worklet'in seviye gönderme aralığı
 
 export const LIVE_VOICES = [
   ['Puck', 'Puck – erkek, neşeli'],
@@ -59,13 +62,22 @@ function closeError(code, reason = '') {
 }
 
 export class LiveClient {
-  // config: { apiKey, model, voice, system, tools, silenceMs, bargeIn, captureMic, socketFactory }
+  // Ses bağlamı Başla'ya basıldığı an (kullanıcı hareketinin içinde) açılmalı; sonradan açılırsa
+  // mobil Chrome onu askıda başlatabiliyor. Giriş ve çıkış aynı, cihazın kendi hızındaki bağlamı kullanır.
+  static createAudio() {
+    const ctx = new AudioContext({ latencyHint: 'interactive' });
+    ctx.resume().catch(() => {});
+    return ctx;
+  }
+
+  // config: { apiKey, model, voice, system, tools, silenceMs, bargeIn, captureMic, audio, socketFactory }
   // events: onLearnerText, onPartnerText, onSpeaking, onInterrupted, onTurnComplete, onToolCall,
-  //         onReconnecting, onReconnected, onClosed
+  //         onReconnecting, onReconnected, onClosed, onMicProblem
   constructor(config, events = {}) {
     this.config = config;
     this.events = events;
     this.socketFactory = config.socketFactory || ((url) => new WebSocket(url));
+    this.ctx = config.audio || LiveClient.createAudio();
     this.ws = null;
     this.ready = false;
     this.closed = false;
@@ -73,20 +85,39 @@ export class LiveClient {
     this.reconnects = 0;
     this.pendingSwap = false;
     this.micMuted = false;
+    this.micLevel = 0;
     this.speaking = false;
     this.turnActive = false;
+    this.turnHasAudio = false;
     this.dropAudio = false;
     this.sources = new Set();
     this.playhead = 0;
     this.idleWaiters = [];
     this.turnWaiters = [];
+    // Yerel konuşma algılama (sunucunun algılamasına yedek)
+    this.noise = 0.005;
+    this.voiceMs = 0;
+    this.quietMs = 0;
+    this.userTalking = false;
+    this.heardText = false;
+    this.replyDeadline = 0;
   }
 
   async start() {
-    this.output = new AudioContext({ sampleRate: OUTPUT_RATE });
-    this.output.resume().catch(() => {});
+    const ctx = this.ctx;
+    // Android bağlamı ses odağı değişince (bildirim, Bluetooth) askıya alabiliyor: geri aç.
+    ctx.onstatechange = () => {
+      if (ctx.state === 'suspended' && !this.closed) ctx.resume().catch(() => {});
+    };
+    await ctx.resume().catch(() => {});
+    this.output = ctx.createGain();
+    this.analyser = ctx.createAnalyser();
+    this.analyser.fftSize = 512;
+    this.levelBuffer = new Float32Array(this.analyser.fftSize);
+    this.output.connect(this.analyser).connect(ctx.destination);
     if (this.config.captureMic) await this.startMic();
     await this.connect();
+    this.watchdog = setInterval(() => this.checkWatchdog(), 1000);
   }
 
   async startMic() {
@@ -97,22 +128,72 @@ export class LiveClient {
     } catch (err) {
       throw new LiveError('mic', err.name === 'NotAllowedError' ? 'Mikrofon izni verilmedi.' : 'Mikrofona erişilemiyor.');
     }
-    let source;
-    try {
-      this.input = new AudioContext({ sampleRate: INPUT_RATE });
-      source = this.input.createMediaStreamSource(this.stream);
-    } catch {
-      // Bazı tarayıcılar mikrofonu farklı örnekleme hızlı bir bağlama bağlayamıyor; worklet seyreltir.
-      this.input?.close().catch(() => {});
-      this.input = new AudioContext();
-      source = this.input.createMediaStreamSource(this.stream);
-    }
-    await this.input.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url));
-    this.worklet = new AudioWorkletNode(this.input, 'pcm-capture', { processorOptions: { chunkSize: 1600 } });
-    this.worklet.port.onmessage = (event) => this.sendAudio(event.data);
-    const silent = this.input.createGain();
+    const [track] = this.stream.getAudioTracks();
+    track?.addEventListener('ended', () => this.events.onMicProblem?.('Mikrofon bağlantısı kesildi.'));
+    await this.ctx.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url));
+    const source = this.ctx.createMediaStreamSource(this.stream);
+    this.worklet = new AudioWorkletNode(this.ctx, 'pcm-capture', { processorOptions: { chunkSize: 1600 } });
+    this.worklet.port.onmessage = ({ data }) => {
+      if (data.type === 'pcm') this.sendAudio(data.buffer);
+      else if (data.type === 'level') this.onMicLevel(data.rms);
+    };
+    const silent = this.ctx.createGain();
     silent.gain.value = 0;
-    source.connect(this.worklet).connect(silent).connect(this.input.destination);
+    source.connect(this.worklet).connect(silent).connect(this.ctx.destination);
+    await this.ctx.resume().catch(() => {});
+    this.micStartedAt = Date.now();
+    this.micPeak = 0;
+  }
+
+  onMicLevel(rms) {
+    this.micLevel = this.micMuted ? 0 : rms;
+    this.micPeak = Math.max(this.micPeak, rms);
+    if (!this.micWarned && Date.now() - this.micStartedAt > 6000 && this.micPeak < 1e-4) {
+      this.micWarned = true;
+      this.events.onMicProblem?.('Mikrofondan ses gelmiyor. Başka bir uygulama mikrofonu kullanıyor olabilir.');
+    }
+    this.trackSpeech(rms);
+  }
+
+  // Gürültü tabanını izleyen basit konuşma algılama. Sen susunca sunucuya "ses bitti" denir;
+  // sunucunun kendi algılaması gürültülü ortamda (araba) takılırsa bile sıra Sam'e geçer.
+  trackSpeech(rms) {
+    // Gürültü tabanı sessizlikte hızla iner, seste yavaşça yükselir; araç gürültüsü konuşmayı bastırmasın diye sınırlı.
+    this.noise = rms < this.noise ? this.noise * 0.6 + rms * 0.4 : Math.min(0.06, this.noise * 0.995 + rms * 0.005);
+    const voiced = rms > Math.max(this.noise * 2.5, 0.008);
+    if (voiced && !this.micMuted) {
+      this.voiceMs += LEVEL_STEP_MS;
+      this.quietMs = 0;
+      if (this.voiceMs >= 250) this.userTalking = true;
+      return;
+    }
+    this.quietMs += LEVEL_STEP_MS;
+    if (!this.userTalking) {
+      this.voiceMs = 0;
+      return;
+    }
+    if (this.quietMs >= this.config.silenceMs + 500 && !this.speaking && !this.micMuted) {
+      this.userTalking = false;
+      this.voiceMs = 0;
+      this.send({ realtimeInput: { audioStreamEnd: true } });
+      if (this.heardText) this.replyDeadline = Date.now() + REPLY_TIMEOUT_MS;
+    }
+  }
+
+  // Sam seni duydu (yazıya döktü) ama cevap gelmiyorsa bağlantıyı aynı oturumla yenile.
+  checkWatchdog() {
+    if (!this.replyDeadline || Date.now() < this.replyDeadline) return;
+    this.replyDeadline = 0;
+    if (this.turnActive || this.speaking || !this.ready || this.closed) return;
+    this.restart(new LiveError('network', 'Sam cevap vermedi'), 'no-reply');
+  }
+
+  restart(error, reason) {
+    const old = this.ws;
+    this.ws = null;
+    this.ready = false;
+    try { old?.close(); } catch { /* zaten kapalı */ }
+    this.reconnect(error, reason);
   }
 
   connect() {
@@ -172,11 +253,7 @@ export class LiveClient {
       },
       systemInstruction: { parts: [{ text: c.system }] },
       realtimeInputConfig: {
-        automaticActivityDetection: {
-          endOfSpeechSensitivity: 'END_SENSITIVITY_LOW',
-          prefixPaddingMs: 300,
-          silenceDurationMs: c.silenceMs,
-        },
+        automaticActivityDetection: { prefixPaddingMs: 300, silenceDurationMs: c.silenceMs },
         activityHandling: c.bargeIn ? 'START_OF_ACTIVITY_INTERRUPTS' : 'NO_INTERRUPTION',
       },
       inputAudioTranscription: {},
@@ -196,18 +273,25 @@ export class LiveClient {
       this.pendingSwap = true;
       if (!this.turnActive) this.swap();
     }
-    if (message.toolCall?.functionCalls?.length) this.events.onToolCall?.(message.toolCall.functionCalls);
+    if (message.toolCall?.functionCalls?.length) {
+      this.replyDeadline = 0;
+      this.heardText = false;
+      this.events.onToolCall?.(message.toolCall.functionCalls);
+    }
 
     const content = message.serverContent;
     if (!content) return;
-    if (content.inputTranscription?.text) this.events.onLearnerText?.(content.inputTranscription.text);
+    if (content.inputTranscription?.text) {
+      this.heardText = true;
+      this.events.onLearnerText?.(content.inputTranscription.text);
+    }
     if (content.outputTranscription?.text) {
-      this.turnActive = true;
+      this.markReply();
       if (!this.dropAudio) this.events.onPartnerText?.(content.outputTranscription.text);
     }
     for (const part of content.modelTurn?.parts || []) {
       if (!part.inlineData?.data || !/audio/i.test(part.inlineData.mimeType || 'audio/pcm')) continue;
-      this.turnActive = true;
+      this.markReply();
       if (!this.dropAudio) this.play(part.inlineData.data);
     }
     if (content.interrupted) {
@@ -221,13 +305,20 @@ export class LiveClient {
     }
   }
 
+  markReply() {
+    this.turnActive = true;
+    this.replyDeadline = 0;
+    this.heardText = false;
+  }
+
   endTurn() {
     this.turnActive = false;
+    this.turnHasAudio = false;
     this.dropAudio = false;
     const waiters = this.turnWaiters;
     this.turnWaiters = [];
     waiters.forEach((resolve) => resolve());
-    this.checkIdle();
+    this.updateSpeaking();
     if (this.pendingSwap) this.swap();
   }
 
@@ -245,7 +336,7 @@ export class LiveClient {
     }
   }
 
-  async reconnect(error) {
+  async reconnect(error, reason = 'dropped') {
     this.stopPlayback();
     this.endTurn();
     if (this.closed) return;
@@ -256,12 +347,12 @@ export class LiveClient {
     }
     this.reconnects += 1;
     this.events.onReconnecting?.(this.reconnects, error);
-    await sleep(Math.min(8000, 1000 * this.reconnects));
+    await sleep(reason === 'no-reply' ? 300 : Math.min(8000, 1000 * this.reconnects));
     if (this.closed) return;
     try {
       await this.connect();
       this.reconnects = 0;
-      this.events.onReconnected?.(Boolean(this.handle));
+      this.events.onReconnected?.(Boolean(this.handle), reason);
     } catch (err) {
       this.reconnect(err);
     }
@@ -302,6 +393,11 @@ export class LiveClient {
 
   setMicMuted(muted) {
     this.micMuted = muted;
+    if (muted) {
+      this.micLevel = 0;
+      this.userTalking = false;
+      this.voiceMs = 0;
+    }
   }
 
   // Sam'in o anki cevabını sustur (dokunarak atlama, duraklatma).
@@ -322,22 +418,23 @@ export class LiveClient {
     const data = fromBase64(base64);
     const pcm = new Int16Array(data, 0, Math.floor(data.byteLength / 2));
     if (!pcm.length) return;
-    const buffer = this.output.createBuffer(1, pcm.length, OUTPUT_RATE);
+    const buffer = this.ctx.createBuffer(1, pcm.length, OUTPUT_RATE); // bağlam kendi hızına çevirir
     const channel = buffer.getChannelData(0);
     for (let i = 0; i < pcm.length; i++) channel[i] = pcm[i] / 0x8000;
-    const source = this.output.createBufferSource();
+    const source = this.ctx.createBufferSource();
     source.buffer = buffer;
-    source.connect(this.output.destination);
-    const now = this.output.currentTime;
-    if (this.playhead < now + 0.05) this.playhead = now + 0.05; // parçalar arasında takılmasın diye küçük tampon
+    source.connect(this.output);
+    const now = this.ctx.currentTime;
+    if (this.playhead < now) this.playhead = now + START_BUFFER_S;
     source.start(this.playhead);
     this.playhead += buffer.duration;
     this.sources.add(source);
     source.onended = () => {
       this.sources.delete(source);
-      if (!this.sources.size) this.setSpeaking(false);
+      this.updateSpeaking();
     };
-    this.setSpeaking(true);
+    this.turnHasAudio = true;
+    this.updateSpeaking();
   }
 
   stopPlayback() {
@@ -347,14 +444,28 @@ export class LiveClient {
     }
     this.sources.clear();
     this.playhead = 0;
-    this.setSpeaking(false);
+    this.turnHasAudio = false;
+    this.updateSpeaking();
   }
 
-  setSpeaking(speaking) {
-    if (this.speaking === speaking) return;
-    this.speaking = speaking;
-    this.events.onSpeaking?.(speaking);
+  // Sam, sesi çalarken ve cevabı sürerken "konuşuyor" sayılır; parçalar arasındaki kısa
+  // boşluklarda (mobil ağ) durum "dinliyor"a dönüp ekran titremesin.
+  updateSpeaking() {
+    const speaking = this.sources.size > 0 || (this.turnActive && this.turnHasAudio);
+    if (speaking !== this.speaking) {
+      this.speaking = speaking;
+      this.events.onSpeaking?.(speaking);
+    }
     this.checkIdle();
+  }
+
+  // Sam'in sesinin o anki seviyesi (ağız animasyonu için).
+  outputLevel() {
+    if (!this.analyser || !this.sources.size) return 0;
+    this.analyser.getFloatTimeDomainData(this.levelBuffer);
+    let sum = 0;
+    for (const v of this.levelBuffer) sum += v * v;
+    return Math.sqrt(sum / this.levelBuffer.length);
   }
 
   waitForIdle() {
@@ -374,13 +485,14 @@ export class LiveClient {
   close() {
     this.closed = true;
     this.ready = false;
+    clearInterval(this.watchdog);
     const ws = this.ws;
     this.ws = null;
     try { ws?.close(); } catch { /* zaten kapalı */ }
     this.stopPlayback();
     this.cancelRequests();
     this.stream?.getTracks().forEach((track) => track.stop());
-    this.input?.close().catch(() => {});
-    this.output?.close().catch(() => {});
+    this.ctx.onstatechange = null;
+    this.ctx.close().catch(() => {});
   }
 }

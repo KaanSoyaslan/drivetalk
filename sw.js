@@ -1,5 +1,5 @@
 // Uygulama dosyalarını önbelleğe alır; önce ağdan dener ki güncellemeler hemen gelsin.
-const CACHE = 'drivetalk-v3';
+const CACHE = 'drivetalk-v4';
 const ASSETS = [
   './',
   'index.html',

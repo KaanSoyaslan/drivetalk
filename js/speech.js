@@ -184,6 +184,8 @@ export class Speaker {
     this.rate = 1;
     this.token = 0;
     this.held = new Set(); // Chrome, referansı tutulmayan utterance'ların onend'ini kaçırabiliyor
+    this.speaking = false;
+    this.lastWordAt = 0; // ağız animasyonu için son kelime sınırı
   }
 
   voices() {
@@ -207,9 +209,14 @@ export class Speaker {
   async speak(text) {
     if (!synthesisSupported || !text) return;
     const token = ++this.token;
-    for (const chunk of splitSentences(text)) {
-      if (token !== this.token) return;
-      await this.speakChunk(chunk);
+    this.speaking = true;
+    try {
+      for (const chunk of splitSentences(text)) {
+        if (token !== this.token) return;
+        await this.speakChunk(chunk);
+      }
+    } finally {
+      if (token === this.token) this.speaking = false;
     }
   }
 
@@ -234,6 +241,7 @@ export class Speaker {
         utterance.onend = utterance.onerror = null;
         resolve();
       }
+      utterance.onboundary = () => { this.lastWordAt = performance.now(); };
       utterance.onend = () => { this.held.delete(utterance); done(); };
       utterance.onerror = () => { this.held.delete(utterance); done(); };
       speechSynthesis.speak(utterance);
@@ -242,6 +250,7 @@ export class Speaker {
 
   cancel() {
     this.token += 1;
+    this.speaking = false;
     if (synthesisSupported) speechSynthesis.cancel();
   }
 }

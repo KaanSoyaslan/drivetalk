@@ -27,6 +27,12 @@ const speaker = new Speaker();
 const mediaKeys = new MediaKeys();
 let session = null;
 
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const ICONS = {
+  back: '<path d="M15 18l-6-6 6-6"/>',
+  history: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+};
+
 function el(tag, props = {}, ...children) {
   const node = document.createElement(tag);
   for (const [key, value] of Object.entries(props)) {
@@ -38,34 +44,109 @@ function el(tag, props = {}, ...children) {
   return node;
 }
 
-// ---------- Canlı ekran ----------
+function icon(name) {
+  const svg = document.createElementNS(SVG_NS, 'svg');
+  svg.setAttribute('class', 'icon');
+  svg.setAttribute('viewBox', '0 0 24 24');
+  svg.setAttribute('aria-hidden', 'true');
+  svg.innerHTML = ICONS[name];
+  return svg;
+}
+
+// ---------- Sohbet ekranı ----------
 
 const STATE_LABELS = {
   idle: 'Hazır',
   listening: 'Dinliyorum',
-  thinking: 'Düşünüyor…',
-  speaking: 'Konuşuyor',
+  thinking: 'Düşünüyor',
+  speaking: 'Sam konuşuyor',
   paused: 'Duraklatıldı',
-  summary: 'Özet hazırlanıyor…',
+  summary: 'Özet hazırlanıyor',
 };
-const STATE_HINTS = {
-  listening: 'bitirdiysen dokun',
-  speaking: 'atlamak için dokun',
-  paused: '"continue" de',
-};
+
+function stateHint(name) {
+  const live = session instanceof LiveSession;
+  switch (name) {
+    case 'listening': return live ? 'Konuş; sustuğunda Sam cevap verir.' : 'Konuş; sustuğunda kendiliğinden gönderilir.';
+    case 'speaking': return live && settings.bargeIn ? 'Araya girmek için konuşman yeterli.' : 'Atlamak için Sam\'e dokun.';
+    case 'paused': return live ? 'Devam için Sam\'e dokun.' : 'Devam için Sam\'e dokun ya da "continue" de.';
+    case 'summary': return 'Hemen bitirmek için Bitir\'e bas.';
+    default: return '';
+  }
+}
 
 const ui = {
   current: 'idle',
   state(name, hint) {
     this.current = name;
-    $('orb').className = `orb ${name}`;
+    $('live').dataset.state = name;
+    $('orb').setAttribute('class', `avatar ${name}`);
     $('orbLabel').textContent = STATE_LABELS[name];
-    $('orbHint').textContent = hint ?? STATE_HINTS[name] ?? '';
+    $('orbHint').textContent = hint ?? stateHint(name);
   },
   partner(text) { $('partnerLine').textContent = text; },
   interim(text) { $('interim').textContent = text; },
   tip(text) { $('tipLine').textContent = text; },
   error(text) { $('errorLine').textContent = text; },
+};
+
+// Ses seviyeleri: senin sesin halkayı ve çubukları, Sam'in sesi ağzını hareket ettirir.
+const METER_BARS = 16;
+const meterBars = Array.from({ length: METER_BARS }, () => el('span'));
+$('meterBars').replaceChildren(...meterBars);
+const levelToUnit = (rms) => clamp((20 * Math.log10(Math.max(rms, 1e-5)) + 58) / 46, 0, 1); // -58 dB → 0, -12 dB → 1
+
+const meters = {
+  frame: 0,
+  mic: 0,
+  sam: 0,
+  start() {
+    cancelAnimationFrame(this.frame);
+    const tick = () => {
+      this.update();
+      this.frame = requestAnimationFrame(tick);
+    };
+    this.frame = requestAnimationFrame(tick);
+  },
+  stop() {
+    cancelAnimationFrame(this.frame);
+    this.frame = 0;
+    this.mic = 0;
+    this.sam = 0;
+    this.render();
+  },
+  update() {
+    const { mic = 0, sam = 0 } = session?.levels?.() || {};
+    const follow = (current, target) => current + (target - current) * (target > current ? 0.5 : 0.14);
+    this.mic = follow(this.mic, mic);
+    this.sam = follow(this.sam, sam);
+    this.render();
+  },
+  render() {
+    const samTurn = ui.current === 'speaking';
+    const level = samTurn ? this.sam : this.mic;
+    $('orb').style.setProperty('--mic', (samTurn ? 0 : this.mic).toFixed(3));
+    $('mouth').setAttribute('ry', (3 + this.sam * 15).toFixed(1));
+    $('mouth').setAttribute('rx', (16 - this.sam * 3).toFixed(1));
+    $('meter').classList.toggle('sam', samTurn);
+    $('meterLabel').textContent = samTurn ? 'Sam' : 'Sen';
+    const lit = Math.round(level * METER_BARS);
+    meterBars.forEach((bar, i) => bar.classList.toggle('on', i < lit));
+  },
+};
+
+const clock = {
+  timer: 0,
+  start(startedAt) {
+    clearInterval(this.timer);
+    const tick = () => {
+      const seconds = Math.floor((Date.now() - Date.parse(startedAt)) / 1000);
+      $('timer').textContent = `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+    };
+    tick();
+    this.timer = setInterval(tick, 1000);
+  },
+  stop() { clearInterval(this.timer); },
 };
 
 let wakeLock = null;
@@ -115,6 +196,34 @@ class Session {
     this.nudged = false;
     this.failures = 0;
     this.material = '';
+    this.lastInterim = '';
+    this.lastHeardAt = 0;
+  }
+
+  // Konuşma tanıma ses akışını vermediği için seviye, ara sonuç geldikçe yükselen bir nabızdır.
+  levels() {
+    const now = performance.now();
+    const heard = Math.max(0, 1 - (now - this.lastHeardAt) / 450);
+    const mic = this.paused ? 0 : heard * (0.55 + 0.35 * Math.abs(Math.sin(now / 70)));
+    let sam = 0;
+    if (speaker.speaking) {
+      const word = Math.max(0, 1 - (now - speaker.lastWordAt) / 220);
+      sam = Math.max(0.22 + 0.33 * Math.abs(Math.sin(now / 85) * Math.sin(now / 37)), word * 0.85);
+    }
+    return { mic, sam };
+  }
+
+  onHeard(text) {
+    if (text !== this.lastInterim) {
+      this.lastInterim = text;
+      this.lastHeardAt = performance.now();
+    }
+    ui.interim(text);
+  }
+
+  listen() {
+    this.lastInterim = '';
+    return this.listener.listenOnce({ onInterim: (t) => this.onHeard(t) });
   }
 
   startMediaKeys() {
@@ -142,7 +251,7 @@ class Session {
   async loadMaterial() {
     const kind = materialKind(settings);
     if (!kind) return;
-    ui.state('thinking', kind === 'news' ? 'haberler alınıyor' : 'içerik alınıyor');
+    ui.state('thinking', kind === 'news' ? 'Günün haberleri alınıyor…' : 'İçerik hazırlanıyor…');
     try {
       this.material = await topicMaterial(kind);
     } catch (err) {
@@ -161,7 +270,7 @@ class Session {
       if (!this.endRequested) await this.partnerSays('open');
       while (!this.endRequested) {
         if (this.paused && this.pausedByButton) {
-          ui.state('paused', 'devam için Duraklat\'a bas');
+          ui.state('paused');
           await new Promise((resolve) => { this.resumeWaiter = resolve; });
           continue;
         }
@@ -180,7 +289,7 @@ class Session {
         ui.state(this.paused ? 'paused' : 'listening');
         let heard;
         try {
-          heard = await this.listener.listenOnce({ onInterim: (t) => ui.interim(t) });
+          heard = await this.listen();
         } catch (err) {
           if (await this.handleListenError(err)) continue;
           break;
@@ -233,6 +342,7 @@ class Session {
 
   async learnerTurn(text) {
     const turn = this.addLearnerTurn(text);
+    ui.interim(text);
     ui.state('thinking');
     ui.tip('');
     ui.error('');
@@ -281,7 +391,7 @@ class Session {
     ui.partner(bridge);
     if (!pausedByButton()) await this.say(bridge);
     if (this.endRequested) return;
-    ui.state('thinking', `${LOOKUP_LABELS[lookup.kind]} kontrol ediliyor`);
+    ui.state('thinking', `${LOOKUP_LABELS[lookup.kind]} kontrol ediliyor…`);
     let answerText;
     try {
       answerText = await answer;
@@ -322,6 +432,7 @@ class Session {
     this.record.turns.push({ role: 'partner', text, at: Date.now(), ...extra });
     this.save();
     ui.partner(text);
+    ui.interim('');
     // Düğmeyle duraklatıldıysa cevabı şimdi okuma; devam edince okunur.
     if (!(this.paused && this.pausedByButton)) await this.say(text);
   }
@@ -416,17 +527,17 @@ class Session {
     for (const item of items) {
       if (this.endRequested) return;
       ui.tip(item.tr ? `${item.en} – ${item.tr}` : item.en);
+      ui.partner(`Make a sentence with: ${item.en}`);
       await this.say(`Make a sentence with: ${item.en}.`);
       if (this.endRequested) return;
       ui.state('listening');
       let heard;
       try {
-        heard = await this.listener.listenOnce({ onInterim: (t) => ui.interim(t) });
+        heard = await this.listen();
       } catch (err) {
         if (await this.handleListenError(err)) continue;
         return;
       }
-      ui.interim('');
       if (this.endRequested || heard === null) return; // duraklatma ya da tuşla çıkış
       const answer = heard.trim();
       if (parseCommand(answer) === 'end') {
@@ -452,6 +563,7 @@ class Session {
       reviewVocab(item.en, verdict.correct);
       (this.record.quiz ||= []).push({ phrase: item.en, answer, correct: verdict.correct });
       this.save();
+      ui.interim('');
       await this.say(verdict.feedback || (verdict.correct ? 'Correct!' : 'Not quite.'));
     }
     ui.tip('');
@@ -486,9 +598,10 @@ class Session {
     mediaKeys.setPaused(this.paused);
   }
 
-  // Ekrandaki daireye dokunma: konuşuyorsa atla, dinliyorsa duyduğunu hemen gönder.
+  // Sam'e dokunma: duraklatılmışsa devam, konuşuyorsa atla.
   tapOrb() {
-    if (ui.current === 'speaking') speaker.cancel();
+    if (this.paused) this.togglePause();
+    else if (ui.current === 'speaking') speaker.cancel();
     else if (ui.current === 'listening') this.listener.flush();
   }
 
@@ -502,8 +615,7 @@ class Session {
     this.paused = false;
     this.pausedByButton = false;
     updatePauseButton();
-    $('pauseBtn').disabled = true;
-    $('endBtn').textContent = 'Hemen bitir';
+    setEnding();
     this.listener.stop();
     speaker.cancel();
     if (this.resumeWaiter) {
@@ -548,8 +660,7 @@ class Session {
 
   async finish() {
     this.finishing = true;
-    $('pauseBtn').disabled = true;
-    $('endBtn').textContent = 'Hemen bitir';
+    setEnding();
     if (!this.learnerCount) {
       if (this.record.quiz?.length) {
         this.record.endedAt = new Date().toISOString();
@@ -557,7 +668,7 @@ class Session {
       }
       return;
     }
-    ui.state('summary', 'hemen bitirmek için Bitir\'e bas');
+    ui.state('summary');
     ui.tip('');
     const issues = this.allIssues();
     let summary;
@@ -584,7 +695,11 @@ class Session {
       renderFocus();
     }
     if (summary.phrases.length) addVocab(summary.phrases);
-    if (!this.skipSummary) await this.say(`${summary.spoken} Goodbye, and drive safely!`);
+    if (!this.skipSummary) {
+      ui.partner(summary.spoken);
+      ui.interim('');
+      await this.say(`${summary.spoken} Goodbye, and drive safely!`);
+    }
   }
 
   save() {
@@ -597,18 +712,28 @@ class Session {
 // metin çağrılarıyla çalışır; komutlar (geri bildirim, duraklat, bitir, test) modelin araçlarıdır.
 
 class LiveSession extends Session {
-  constructor({ llm }) {
+  constructor({ llm, audio }) {
     super({ llm, listener: null });
     this.record.mode = 'live';
+    this.audio = audio;
     this.client = null;
     this.connected = false;
     this.learnerText = '';
     this.partnerText = '';
+    this.lastLearnerText = '';
     this.pendingTips = [];
     this.pendingLookup = null;
     this.afterTurn = null; // model aracı istedi: cevabı bitince 'pause' ya da 'end'
     this.stopWaiting = null;
     this.coachJobs = new Set();
+  }
+
+  levels() {
+    if (!this.client) return { mic: 0, sam: 0 };
+    return {
+      mic: this.paused ? 0 : levelToUnit(this.client.micLevel),
+      sam: levelToUnit(this.client.outputLevel()),
+    };
   }
 
   async run() {
@@ -617,16 +742,17 @@ class LiveSession extends Session {
     this.startMediaKeys();
     try {
       await this.loadMaterial();
-      ui.state('thinking', 'Canlı moda bağlanıyor');
+      ui.state('thinking', 'Canlı moda bağlanıyor…');
       this.client = new LiveClient({
         apiKey: settings.apiKey.trim(),
         model: settings.liveModel,
         voice: settings.liveVoice,
         system: liveSystem(settings, this.profile, this.material),
         tools: liveTools(settings),
-        silenceMs: clamp(settings.graceMs, 600, 3000),
+        silenceMs: clamp(settings.graceMs, 700, 2500),
         bargeIn: settings.bargeIn,
         captureMic: !settings.typeMode,
+        audio: this.audio,
         socketFactory: isDemo() ? () => new MockLiveSocket() : null,
       }, this.liveEvents());
       await this.client.start();
@@ -650,12 +776,17 @@ class LiveSession extends Session {
       if (!this.connected) this.fallback = err;
       this.save();
     } finally {
-      this.client?.close();
+      if (this.client) this.client.close();
+      else this.audio?.close().catch(() => {});
       this.active = false;
       keepAwake(false);
       mediaKeys.stop();
       sessionEnded(this);
     }
+  }
+
+  showIdle() {
+    ui.state(this.paused ? 'paused' : 'listening');
   }
 
   liveEvents() {
@@ -667,6 +798,7 @@ class LiveSession extends Session {
       },
       onPartnerText: (chunk) => {
         this.commitLearner();
+        if (!this.partnerText) ui.interim('');
         this.partnerText += chunk;
         ui.partner(this.partnerText.trim());
       },
@@ -682,13 +814,17 @@ class LiveSession extends Session {
       },
       onToolCall: (calls) => this.handleToolCalls(calls),
       onReconnecting: (attempt) => {
-        ui.state('thinking', 'yeniden bağlanıyor');
-        ui.error(`Bağlantı koptu, yeniden bağlanılıyor (${attempt}).`);
+        ui.state('thinking', 'Bağlantı yenileniyor…');
+        if (attempt > 1) ui.error(`Bağlantı koptu, yeniden bağlanılıyor (${attempt}).`);
       },
-      onReconnected: (resumed) => {
+      onReconnected: (resumed, reason) => {
         ui.error('');
         this.showIdle();
-        if (!resumed) {
+        if (reason === 'no-reply') {
+          // Sam seni duymuş ama cevap vermemişti: aynı cümleye cevap vermesini iste.
+          this.commitLearner();
+          if (this.lastLearnerText) this.client.sendText(`[App] Reply to what the learner just said: "${this.lastLearnerText}"`);
+        } else if (!resumed) {
           const recent = this.record.turns.slice(-6).map((t) => `${t.role === 'partner' ? 'Sam' : 'Learner'}: ${t.text}`).join('\n');
           this.client.sendText(`[App] The connection dropped and was restored. The recent conversation was:\n${recent}\nBriefly say you're back and continue.`);
         }
@@ -698,24 +834,20 @@ class LiveSession extends Session {
         this.endRequested = true;
         this.stopWaiting?.();
       },
+      onMicProblem: (message) => ui.error(message),
     };
-  }
-
-  showIdle() {
-    if (this.paused) ui.state('paused', 'devam için dokun');
-    else ui.state('listening', 'konuşabilirsin');
   }
 
   commitLearner() {
     const text = this.learnerText.replace(/\s+/g, ' ').trim();
     this.learnerText = '';
-    ui.interim('');
     if (text) this.recordLearner(text);
   }
 
   // Cümleyi kaydeder ve koça arka planda inceletir; ipuçları Sam'in sırası bitince söylenir.
   recordLearner(text) {
     const turn = this.addLearnerTurn(text);
+    this.lastLearnerText = text;
     this.save();
     const job = analyzeUtterance(this.llm, settings, this.lastPartner, text)
       .then((review) => {
@@ -823,7 +955,7 @@ class LiveSession extends Session {
   }
 
   async lookupTool(kind, query = '') {
-    ui.state('thinking', `${LOOKUP_LABELS[kind]} kontrol ediliyor`);
+    ui.state('thinking', `${LOOKUP_LABELS[kind]} kontrol ediliyor…`);
     this.pendingLookup = { kind, query: String(query || '').trim() };
     try {
       return (await lookUp(this.pendingLookup, settings)).text;
@@ -839,6 +971,7 @@ class LiveSession extends Session {
     if (this.paused) this.setPaused(false);
     this.commitLearner();
     this.recordLearner(text);
+    ui.interim(text);
     this.client.sendText(text);
   }
 
@@ -853,8 +986,7 @@ class LiveSession extends Session {
   enterPause() {
     this.setPaused(true);
     this.learnerText = '';
-    ui.interim('');
-    ui.state('paused', 'devam için dokun');
+    ui.state('paused');
   }
 
   resumeLive() {
@@ -902,8 +1034,7 @@ class LiveSession extends Session {
     this.paused = false;
     this.pausedByButton = false;
     updatePauseButton();
-    $('pauseBtn').disabled = true;
-    $('endBtn').textContent = 'Hemen bitir';
+    setEnding();
     this.client?.setMicMuted(true);
     this.client?.skipCurrent();
     this.client?.cancelRequests();
@@ -922,7 +1053,14 @@ class LiveSession extends Session {
 }
 
 function updatePauseButton() {
-  $('pauseBtn').textContent = session?.paused ? 'Devam et' : 'Duraklat';
+  const paused = Boolean(session?.paused);
+  $('pauseBtn').classList.toggle('is-paused', paused);
+  $('pauseLabel').textContent = paused ? 'Devam et' : 'Duraklat';
+}
+
+function setEnding() {
+  $('pauseBtn').disabled = true;
+  $('endLabel').textContent = 'Hemen bitir';
 }
 
 const liveSelected = () => settings.voiceMode === 'live';
@@ -938,14 +1076,41 @@ function setupProblems(live = liveSelected()) {
     if (!synthesisSupported) problems.push('Bu tarayıcı sesli okumayı desteklemiyor.');
     if (!settings.typeMode && !recognitionSupported) problems.push('Bu tarayıcı konuşma tanımayı desteklemiyor. Android\'de Google Chrome ile aç.');
   }
-  if (!isDemo() && !settings.apiKey.trim()) problems.push('Önce Ayarlar\'dan Gemini API anahtarını gir (ya da Ayarlar → Gelişmiş → Demo modu).');
+  if (!isDemo() && !settings.apiKey.trim()) problems.push('Önce Ayarlar\'dan Gemini API anahtarını gir.');
   return problems;
 }
 
+// ---------- Kurulum ekranı ----------
+
+const SEGMENTS = {
+  levelSeg: { key: 'level', options: [['A2', 'A2'], ['B1', 'B1'], ['B2', 'B2'], ['C1', 'C1']] },
+  feedbackSeg: { key: 'feedbackMode', options: [['periodic', 'Ara ara'], ['instant', 'Anında'], ['end', 'Sonda']] },
+  modeSeg: { key: 'voiceMode', options: [['classic', 'Klasik'], ['live', 'Canlı']] },
+};
+
+const LEVEL_NAMES = { A2: 'temel', B1: 'orta', B2: 'orta üstü', C1: 'ileri' };
+const FEEDBACK_NAMES = { periodic: 'ara ara geri bildirim', instant: 'anında geri bildirim', end: 'geri bildirim sonda' };
 const MODE_HINTS = {
-  classic: 'Klasik: telefonun sesi ve konuşma tanıması.',
+  classic: 'Klasik: telefonun sesi ve konuşma tanıması. Her cevap için birkaç saniye bekler.',
   live: 'Canlı: Sam doğal bir sesle anında cevap verir, sözünü kesebilirsin. Açılamazsa Klasik moda geçer.',
 };
+
+function renderSegments() {
+  for (const [id, { key, options }] of Object.entries(SEGMENTS)) {
+    $(id).replaceChildren(...options.map(([value, label]) => el('button', {
+      type: 'button',
+      role: 'radio',
+      'aria-checked': String(settings[key] === value),
+      class: settings[key] === value ? 'active' : '',
+      onclick: () => {
+        settings[key] = value;
+        saveSettings(settings);
+        fillSettingsForm();
+        refreshSetup();
+      },
+    }, label)));
+  }
+}
 
 function refreshSetup() {
   const problems = setupProblems();
@@ -953,8 +1118,12 @@ function refreshSetup() {
   $('setupWarning').textContent = problems.join(' ');
   $('startBtn').disabled = problems.length > 0;
   $('demoBadge').hidden = !isDemo();
-  $('modeSelect').value = settings.voiceMode;
+  const live = liveSelected();
+  $('modePill').textContent = live ? 'Canlı' : 'Klasik';
+  $('modePill').classList.toggle('live', live);
   $('modeHint').textContent = MODE_HINTS[settings.voiceMode] || '';
+  $('startMeta').textContent = `${topicLabel()} · ${settings.level} ${LEVEL_NAMES[settings.level] || ''} · ${FEEDBACK_NAMES[settings.feedbackMode] || ''}`;
+  renderSegments();
 }
 
 function startSession({ forceClassic = false } = {}) {
@@ -964,12 +1133,14 @@ function startSession({ forceClassic = false } = {}) {
   speaker.voiceURI = settings.voiceURI;
   const llm = isDemo() ? createMockGemini() : createGemini(settings.apiKey.trim());
   if (live) {
-    session = new LiveSession({ llm });
+    // Ses bağlamı dokunuşun içinde açılır; mobil Chrome sonradan açılanı askıda başlatabiliyor.
+    session = new LiveSession({ llm, audio: LiveClient.createAudio() });
   } else {
     const listener = settings.typeMode ? new TypedListener() : new Listener({ graceMs: settings.graceMs });
     session = new Session({ llm, listener });
   }
 
+  document.body.classList.add('in-session');
   $('setup').hidden = true;
   $('live').hidden = false;
   $('typeForm').hidden = !settings.typeMode;
@@ -979,11 +1150,16 @@ function startSession({ forceClassic = false } = {}) {
   ui.error('');
   updatePauseButton();
   $('pauseBtn').disabled = false;
-  $('endBtn').textContent = 'Bitir';
+  $('endLabel').textContent = 'Bitir';
+  clock.start(session.record.startedAt);
+  meters.start();
   session.run();
 }
 
 function sessionEnded(ended) {
+  document.body.classList.remove('in-session');
+  clock.stop();
+  meters.stop();
   $('live').hidden = true;
   $('setup').hidden = false;
   ui.state('idle');
@@ -1007,8 +1183,6 @@ function sessionEnded(ended) {
   }
 }
 
-// ---------- Kurulum ekranı ----------
-
 function renderTopics() {
   const chip = (topic) => el('button', {
     type: 'button',
@@ -1019,12 +1193,12 @@ function renderTopics() {
       $('customTopic').value = '';
       saveSettings(settings);
       renderTopics();
+      refreshSetup();
     },
   }, topic.label);
-  $('topicChips').replaceChildren(...TOPIC_GROUPS.flatMap(([group, label]) => [
-    el('p', { class: 'chip-group' }, label),
-    el('div', { class: 'chips' }, TOPICS.filter((t) => t.group === group).map(chip)),
-  ]));
+  $('topicChips').replaceChildren(...TOPIC_GROUPS.map(([group, label]) => el('div', { class: 'topic-group' },
+    el('p', { class: 'group-label' }, label),
+    el('div', { class: 'chip-row' }, TOPICS.filter((t) => t.group === group).map(chip)))));
 }
 
 $('customTopic').value = settings.customTopic;
@@ -1032,15 +1206,6 @@ $('customTopic').addEventListener('input', (e) => {
   settings.customTopic = e.target.value;
   saveSettings(settings);
   renderTopics();
-});
-$('levelSelect').value = settings.level;
-$('levelSelect').addEventListener('change', (e) => { settings.level = e.target.value; saveSettings(settings); });
-$('feedbackSelect').value = settings.feedbackMode;
-$('feedbackSelect').addEventListener('change', (e) => { settings.feedbackMode = e.target.value; saveSettings(settings); });
-$('modeSelect').addEventListener('change', (e) => {
-  settings.voiceMode = e.target.value;
-  saveSettings(settings);
-  fillSettingsForm();
   refreshSetup();
 });
 
@@ -1065,6 +1230,7 @@ function showView(name) {
   if (name === 'history') renderHistory();
   if (name === 'progress') renderProgress();
   if (name === 'talk') refreshSetup();
+  document.querySelector('main').scrollTop = 0;
 }
 for (const tab of document.querySelectorAll('.tabs button')) {
   tab.addEventListener('click', () => showView(tab.dataset.view));
@@ -1090,23 +1256,32 @@ function renderHistory() {
   const list = $('historyList');
   list.hidden = false;
   const sessions = loadSessions();
+  const title = [el('h1', { class: 'page-title' }, 'Geçmiş'), el('p', { class: 'page-sub' }, 'Her oturumun düzeltmeleri ve konuşma kaydı.')];
   if (!sessions.length) {
-    list.replaceChildren(el('p', { class: 'empty' }, 'Henüz oturum yok. İlk sohbetinden sonra düzeltmelerin burada görünecek.'));
+    list.replaceChildren(...title, el('div', { class: 'empty-state' },
+      icon('history'),
+      el('b', {}, 'Henüz oturum yok'),
+      'İlk sohbetinden sonra düzeltmelerin burada görünecek.'));
     return;
   }
-  list.replaceChildren(...sessions.map((s) => {
+  list.replaceChildren(...title, ...sessions.map((s) => {
     const { learner, issues, minutes } = sessionStats(s);
     return el('button', { type: 'button', class: 'session-card', onclick: () => renderSessionDetail(s) },
-      el('div', {}, el('b', {}, s.topic), ` · ${s.level}`, s.mode === 'live' ? el('span', { class: 'mode-tag' }, 'Canlı') : null),
-      el('div', { class: 'meta' }, `${formatDate(s.startedAt)}${minutes ? ` · ${minutes} dk` : ''} · ${learner} cümle · ${issues} düzeltme`));
+      el('div', { class: 'session-title' }, el('span', {}, s.topic), s.mode === 'live' ? el('span', { class: 'mode-tag' }, 'Canlı') : null),
+      el('div', { class: 'session-date' }, formatDate(s.startedAt)),
+      el('div', { class: 'stat-chips' },
+        minutes ? el('span', { class: 'stat-chip' }, `${minutes} dk`) : null,
+        el('span', { class: 'stat-chip' }, `${learner} cümle`),
+        el('span', { class: 'stat-chip' }, `${issues} düzeltme`),
+        el('span', { class: 'stat-chip' }, s.level)));
   }));
 }
 
 function issueCard(issue) {
   return el('div', { class: `issue sev-${issue.severity}` },
-    el('div', {}, el('span', { class: 'from' }, issue.original), '  →  ', el('span', { class: 'to' }, issue.better)),
-    el('div', { class: 'why' }, issue.explanation_tr || ''),
-    el('div', { class: 'why' }, issue.explanation || ''));
+    el('div', {}, el('span', { class: 'from' }, issue.original), el('span', { class: 'arrow' }, '→'), el('span', { class: 'to' }, issue.better)),
+    issue.explanation_tr ? el('div', { class: 'why' }, issue.explanation_tr) : null,
+    issue.explanation ? el('div', { class: 'why' }, issue.explanation) : null);
 }
 
 function renderSessionDetail(s) {
@@ -1116,34 +1291,46 @@ function renderSessionDetail(s) {
   const issues = s.turns.flatMap((t) => t.issues || []).sort((a, b) => b.severity - a.severity);
   const summary = s.summary;
   const phrases = summary?.phrases || [];
+  const { learner, minutes } = sessionStats(s);
 
-  box.replaceChildren(el('div', { class: 'detail' },
-    el('button', { type: 'button', onclick: renderHistory }, '← Geri'),
-    el('h2', {}, `${s.topic} · ${formatDate(s.startedAt)}`),
-    summary && el('div', { class: 'summary-box' },
+  const chat = s.turns.flatMap((t) => {
+    const items = [];
+    if (t.lookup) {
+      const label = LOOKUP_LABELS[t.lookup.kind] || t.lookup.kind;
+      items.push(el('div', { class: 'msg-lookup' }, `🔎 ${label}${t.lookup.query ? `: ${t.lookup.query}` : ''}`));
+    }
+    items.push(el('div', { class: `msg ${t.role === 'partner' ? 'sam' : 'you'}` }, t.text));
+    if (t.natural && t.natural.trim().toLowerCase() !== t.text.trim().toLowerCase()) {
+      items.push(el('div', { class: 'msg-natural' }, `✓ ${t.natural}`));
+    }
+    return items;
+  });
+
+  box.replaceChildren(...[
+    el('div', { class: 'detail-head' }, el('button', { type: 'button', class: 'btn ghost', onclick: renderHistory }, icon('back'), 'Geçmiş')),
+    el('h1', { class: 'detail-title' }, s.topic),
+    el('p', { class: 'detail-sub' }, `${formatDate(s.startedAt)}${minutes ? ` · ${minutes} dk` : ''} · ${learner} cümle · ${s.level}${s.mode === 'live' ? ' · Canlı' : ''}`),
+    summary ? el('div', { class: 'summary-card' },
       el('p', {}, summary.spoken),
-      summary.focusTr?.length ? el('div', { class: 'focus-chips' }, summary.focusTr.map((f) => el('span', {}, f))) : null),
+      summary.focusTr?.length ? el('div', { class: 'focus-chips' }, summary.focusTr.map((f) => el('span', {}, f))) : null) : null,
     phrases.length ? [
-      el('h2', {}, 'Yeni ifadeler (kelime defterine eklendi)'),
-      el('ul', { class: 'phrase-list' }, phrases.map((p) => el('li', {}, el('b', {}, p.en), p.tr ? ` – ${p.tr}` : '', p.example ? el('div', { class: 'vocab-example' }, p.example) : null))),
+      el('h2', { class: 'section-title' }, 'Yeni ifadeler'),
+      el('ul', { class: 'phrase-list' }, phrases.map((p) => el('li', {},
+        el('b', {}, p.en), p.tr ? ` – ${p.tr}` : '',
+        p.example ? el('div', { class: 'vocab-example' }, p.example) : null))),
     ] : null,
     s.quiz?.length ? [
-      el('h2', {}, 'Kelime testi'),
-      el('ul', { class: 'phrase-list' }, s.quiz.map((q) => el('li', {}, q.correct ? '✓ ' : '✗ ', el('b', {}, q.phrase), q.answer ? ` – "${q.answer}"` : ''))),
+      el('h2', { class: 'section-title' }, 'Kelime testi'),
+      el('ul', { class: 'phrase-list' }, s.quiz.map((q) => el('li', {},
+        el('span', { class: q.correct ? 'ok' : 'no' }, q.correct ? '✓ ' : '✗ '),
+        el('b', {}, q.phrase), q.answer ? ` – "${q.answer}"` : ''))),
     ] : null,
-    el('h2', {}, `Düzeltmeler (${issues.length})`),
-    issues.length ? issues.map(issueCard) : el('p', { class: 'empty' }, 'Bu oturumda düzeltme yok.'),
-    el('h2', {}, 'Konuşma'),
-    el('div', { class: 'transcript' }, s.turns.flatMap((t) => {
-      const line = el('p', {}, el('span', { class: 'who' }, t.role === 'partner' ? 'Sam: ' : 'Sen: '), t.text);
-      const showNatural = t.natural && t.natural.trim().toLowerCase() !== t.text.trim().toLowerCase();
-      if (t.lookup) {
-        const label = LOOKUP_LABELS[t.lookup.kind] || t.lookup.kind;
-        return [el('p', { class: 'lookup' }, `🔎 ${label}${t.lookup.query ? `: ${t.lookup.query}` : ''}`), line];
-      }
-      return showNatural ? [line, el('p', { class: 'natural' }, `✓ ${t.natural}`)] : [line];
-    }))));
-  box.scrollIntoView({ block: 'start' });
+    el('h2', { class: 'section-title' }, `Düzeltmeler (${issues.length})`),
+    issues.length ? issues.map(issueCard) : el('p', { class: 'muted' }, 'Bu oturumda düzeltme yok. Harika!'),
+    el('h2', { class: 'section-title' }, 'Konuşma'),
+    el('div', { class: 'chat' }, chat),
+  ].flat().filter(Boolean));
+  document.querySelector('main').scrollTop = 0;
 }
 
 // ---------- İlerleme ve kelime defteri ----------
@@ -1229,27 +1416,28 @@ function minutesChart(weeks) {
   });
   const chart = el('div', { class: 'bars', role: 'group', 'aria-label': 'Son 8 haftada haftalık konuşma süresi' }, bars);
   show(weeks.at(-1), bars.at(-1));
-  return [chart, readout];
+  return el('div', { class: 'card' }, chart, readout);
 }
 
 function categoryBars(categories) {
   const entries = Object.entries(categories);
   const max = Math.max(...entries.map(([, n]) => n), 1);
-  return el('div', { class: 'hbars' }, entries.map(([key, n]) => el('div', { class: 'hbar-row' },
+  return el('div', { class: 'card hbars' }, entries.map(([key, n]) => el('div', { class: 'hbar-row' },
     el('span', { class: 'hbar-label' }, CATEGORY_LABELS[key]),
     el('span', { class: 'hbar-track' }, n ? el('span', { class: 'hbar', style: `width:${(n / max) * 100}%` }) : null),
     el('span', { class: 'hbar-value' }, String(n)))));
 }
 
 function vocabItem(v) {
-  const dots = Array.from({ length: MAX_BOX }, (_, i) => (i < v.box ? '●' : '○')).join('');
   const days = Math.ceil((v.due - Date.now()) / DAY_MS);
   const when = v.box >= LEARNED_BOX ? 'öğrenildi' : (days <= 0 ? 'tekrar zamanı' : `${days} gün sonra tekrar`);
   return el('li', {},
     el('div', { class: 'vocab-text' },
       el('div', {}, el('b', {}, v.en), v.tr ? ` – ${v.tr}` : ''),
       v.example ? el('div', { class: 'vocab-example' }, v.example) : null,
-      el('div', { class: 'vocab-meta' }, el('span', { class: 'dots', title: `Kutu ${v.box}/${MAX_BOX}` }, dots), ` ${when}`)),
+      el('div', { class: 'vocab-meta' },
+        el('span', { class: 'box-dots', title: `Aşama ${v.box}/${MAX_BOX}` }, Array.from({ length: MAX_BOX }, (_, i) => el('i', { class: i < v.box ? 'on' : '' }))),
+        when)),
     el('button', {
       type: 'button',
       class: 'vocab-remove',
@@ -1266,7 +1454,7 @@ function renderProgress() {
   const fmt = (n) => (n == null ? '–' : n.toLocaleString('tr-TR', { maximumFractionDigits: 1 }));
   let trend = '';
   if (stats.recentRate != null && stats.earlierRate != null) {
-    trend = stats.recentRate < stats.earlierRate ? ' (azalıyor, harika!)' : stats.recentRate > stats.earlierRate ? ' (artıyor)' : '';
+    trend = stats.recentRate < stats.earlierRate ? ' — azalıyor, harika!' : stats.recentRate > stats.earlierRate ? ' — artıyor' : '';
   }
 
   $('progressStats').replaceChildren(
@@ -1275,17 +1463,17 @@ function renderProgress() {
       tile(`${stats.streak} gün`, 'Seri', stats.streak ? 'art arda pratik' : 'bugün başla!'),
       tile(String(stats.sentences), 'Cümle', `${stats.count} oturumda`),
       tile(`${learned}/${vocab.length}`, 'Öğrenilen ifade', due ? `${due} tanesi tekrar bekliyor` : null)),
-    el('h2', {}, 'Haftalık konuşma süresi (dk)'),
-    ...minutesChart(stats.weeks),
-    el('h2', {}, 'Hata oranı'),
-    el('p', { class: 'muted' }, `10 cümlede ortalama düzeltme: son 4 hafta ${fmt(stats.recentRate)}, önceki 4 hafta ${fmt(stats.earlierRate)}${trend}`),
-    el('h2', {}, 'Hata türleri (son 30 gün)'),
+    el('h2', { class: 'section-title' }, 'Haftalık konuşma süresi (dk)'),
+    minutesChart(stats.weeks),
+    el('h2', { class: 'section-title' }, 'Hata oranı'),
+    el('div', { class: 'card' }, el('p', { class: 'muted', style: 'margin:0' }, `10 cümlede ortalama düzeltme: son 4 hafta ${fmt(stats.recentRate)}, önceki 4 hafta ${fmt(stats.earlierRate)}${trend}`)),
+    el('h2', { class: 'section-title' }, 'Hata türleri (son 30 gün)'),
     categoryBars(stats.categories),
   );
   $('vocabCount').textContent = vocab.length ? `(${vocab.length})` : '';
   $('vocabList').replaceChildren(...(vocab.length
     ? vocab.map(vocabItem)
-    : [el('li', { class: 'empty-item' }, 'Henüz ifade yok. Oturum özetlerinden otomatik dolar; aşağıdan kendin de ekleyebilirsin.')]));
+    : [el('li', { class: 'empty-item' }, 'Henüz ifade yok. Oturum özetlerinden otomatik dolar; yukarıdan kendin de ekleyebilirsin.')]));
 }
 
 $('vocabForm').addEventListener('submit', (e) => {

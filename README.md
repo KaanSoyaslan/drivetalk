@@ -103,7 +103,10 @@ Eski telefon için: Android'i ve Chrome'u güncelle. Ayrıca *Ayarlar → Uygula
 
 - Telefonu bir tutucuya tak ve şarja bağla. Uygulama çalışırken ekranı kendisi açık tutar.
 - Bluetooth ile araca bağlanırsan Sam'in sesi araç hoparlöründen gelir.
-- **Başla'ya park halindeyken bas**; sonrası tamamen sesle yürür. Ekrandaki dairenin rengi durumu gösterir: yeşil = dinliyor, turuncu = düşünüyor, mavi = konuşuyor, gri = duraklatıldı.
+- **Başla'ya park halindeyken bas**; sonrası tamamen sesle yürür. Sustuğunda cevap kendiliğinden gelir, hiçbir yere basman gerekmez.
+- Ekranda Sam'in yüzü var. Çevresindeki halkanın rengi durumu gösterir: yeşil = dinliyor, turuncu = düşünüyor, mavi = konuşuyor, gri = duraklatıldı.
+- Yüzün altındaki **ses çubuğu** sen konuşurken senin sesinle (yeşil), Sam konuşurken onun sesiyle (mavi) yükselir. Böylece sesinin gittiğini görürsün. Sam konuşurken ağzı da sesine göre hareket eder.
+- Söylediklerin konuştukça ekrana yazılır.
 - **Direksiyon / kulaklık tuşları:**
   - ▶❚❚ duraklatır ya da devam ettirir.
   - ⏭ konuyu değiştirir.
