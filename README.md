@@ -4,7 +4,18 @@ Araba sürerken eller serbest İngilizce konuşma pratiği. Telefonda Chrome'da 
 
 ## Nasıl çalışır
 
-Sohbet partnerinin adı **Sam**. İki ses modu var; ikisini de Konuş ekranındaki **Ses** kutusundan seçebilirsin.
+Ana ekranda karaktere dokunarak sohbet arkadaşını seçersin. Her birinin görünüşü, kişiliği ve Canlı moddaki sesi farklı:
+
+| Karakter | Kişiliği | Canlı mod sesi |
+|---|---|---|
+| **Sam** | Sıcak ve meraklı, her konuda sohbet eder | Puck |
+| **Mia** | Enerjik ve neşeli; seyahat, müzik ve yemek sever | Aoede |
+| **Robo** | Esprili bir robot; bilim ve ilginç bilgiler anlatır | Charon |
+| **Mochi** | Şakacı bir kedi; yemeğe ve uykuya bayılır | Leda |
+
+Karakter seni dinlerken elini kulağına götürür, düşünürken elini çenesine koyar, konuşurken ağzı, elleri ve kaşları sesine göre oynar. Duraklatınca uyur.
+
+Aşağıda "Sam" yazan yerlerde seçtiğin karakteri düşün. İki ses modu var; ana ekrandaki ayarlar satırından seçilir.
 
 | | Klasik | Canlı (Gemini Live) |
 |---|---|---|
@@ -104,8 +115,8 @@ Eski telefon için: Android'i ve Chrome'u güncelle. Ayrıca *Ayarlar → Uygula
 - Telefonu bir tutucuya tak ve şarja bağla. Uygulama çalışırken ekranı kendisi açık tutar.
 - Bluetooth ile araca bağlanırsan Sam'in sesi araç hoparlöründen gelir.
 - **Başla'ya park halindeyken bas**; sonrası tamamen sesle yürür. Sustuğunda cevap kendiliğinden gelir, hiçbir yere basman gerekmez.
-- Ekranda Sam'in yüzü var. Çevresindeki halkanın rengi durumu gösterir: yeşil = dinliyor, turuncu = düşünüyor, mavi = konuşuyor, gri = duraklatıldı.
-- Yüzün altındaki **ses çubuğu** sen konuşurken senin sesinle (yeşil), Sam konuşurken onun sesiyle (mavi) yükselir. Böylece sesinin gittiğini görürsün. Sam konuşurken ağzı da sesine göre hareket eder.
+- Karakterin arkasındaki ışığın ve üstteki etiketin rengi durumu gösterir: yeşil = dinliyor, turuncu = düşünüyor, mavi = konuşuyor, gri = duraklatıldı.
+- **Ses göstergesi** ekranın sağ ve sol kenarında aşağıdan yukarı yükselir. Sen konuşurken senin sesinle (yeşil), karakter konuşurken onun sesiyle (mavi) dolar. Böylece sesinin gittiğini ekrana bakmadan, göz ucuyla görürsün.
 - Söylediklerin konuştukça ekrana yazılır.
 - **Direksiyon / kulaklık tuşları:**
   - ▶❚❚ duraklatır ya da devam ettirir.

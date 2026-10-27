@@ -37,70 +37,36 @@
   <main>
     <!-- Konuş -->
     <section id="view-talk" class="view active">
-      <div id="setup">
-        <h1 class="page-title">Bugün ne konuşalım?</h1>
-        <p class="page-sub">Konunu seç ve Başla'ya bas. Gerisi tamamen sesle.</p>
-
-        <div class="card">
-          <div id="topicChips"></div>
-          <div class="input-icon">
-            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
-            <input id="customTopic" type="text" autocomplete="off" placeholder="ya da kendi konunu yaz (ör. ordering coffee)">
-          </div>
-        </div>
-
-        <div class="card">
-          <div class="option">
-            <span class="option-label">Seviye</span>
-            <div id="levelSeg" class="segmented" role="radiogroup" aria-label="Seviye"></div>
-          </div>
-          <div class="option">
-            <span class="option-label">Geri bildirim</span>
-            <div id="feedbackSeg" class="segmented" role="radiogroup" aria-label="Geri bildirim"></div>
-          </div>
-          <div class="option">
-            <span class="option-label">Ses modu</span>
-            <div id="modeSeg" class="segmented" role="radiogroup" aria-label="Ses modu"></div>
-          </div>
-          <p id="modeHint" class="hint"></p>
-        </div>
-
-        <button id="startBtn" class="btn-primary" type="button">
-          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
-          <span>Başla</span>
+      <div id="setup" class="home">
+        <button id="charButton" class="home-char" type="button" aria-label="Karakteri değiştir">
+          <div id="homeCharacter" class="character" data-state="idle"></div>
+          <span class="char-change">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true" style="width:14px;height:14px"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+            Değiştir
+          </span>
         </button>
-        <p id="startMeta" class="start-meta"></p>
-        <p id="setupWarning" class="warning" hidden></p>
+        <h1 id="homeTitle" class="home-title"></h1>
+        <p class="home-sub">Bugün ne konuşalım?</p>
 
-        <details class="accordion">
-          <summary>Sesli komutlar</summary>
-          <div class="accordion-body">
-            <ul class="cmd-list">
-              <li><span class="say">"feedback"</span><span class="does">son hatalarını söyler</span></li>
-              <li><span class="say">"quiz me"</span><span class="does">kelime testi</span></li>
-              <li><span class="say">"repeat"</span><span class="does">son cümleyi tekrarlar</span></li>
-              <li><span class="say">"slower" / "faster"</span><span class="does">konuşma hızı</span></li>
-              <li><span class="say">"new topic"</span><span class="does">konu değiştirir</span></li>
-              <li><span class="say">"hold on"</span><span class="does">bekler</span></li>
-              <li><span class="say">"that's all for today"</span><span class="does">özet verip bitirir</span></li>
-            </ul>
-            <p>Sustuğunda cevap kendiliğinden gelir, hiçbir yere basman gerekmez. Duraklatınca devam için Sam'e dokun, direksiyondaki ▶ tuşuna bas ya da (Klasik modda) "continue" de.</p>
-            <p>Direksiyon / kulaklık tuşları: ▶❚❚ duraklat-devam · ⏭ yeni konu · ⏮ tekrar.</p>
-          </div>
-        </details>
+        <button id="topicButton" class="picker" type="button">
+          <span class="picker-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></span>
+          <span class="picker-text"><span class="picker-label">Konu</span><span id="topicValue" class="picker-value"></span></span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
+        <button id="optionsButton" class="picker" type="button">
+          <span class="picker-icon"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></svg></span>
+          <span class="picker-text"><span class="picker-label">Seviye · geri bildirim · ses</span><span id="optionsValue" class="picker-value"></span></span>
+          <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 18l6-6-6-6"/></svg>
+        </button>
 
-        <details class="accordion">
-          <summary>Sam'e sorabileceklerin</summary>
-          <div class="accordion-body">
-            <ul class="cmd-list">
-              <li><span class="say">"What's the weather like tomorrow?"</span><span class="does">hava durumu</span></li>
-              <li><span class="say">"Any news about Serbia?"</span><span class="does">son haberler</span></li>
-              <li><span class="say">"Tell me about the Hagia Sophia."</span><span class="does">Wikipedia</span></li>
-              <li><span class="say">"How much is the dollar today?"</span><span class="does">döviz</span></li>
-            </ul>
-            <p>Sam gerekince kendisi bakar; bilgiler ücretsiz kaynaklardan telefonun kendisi tarafından alınır.</p>
-          </div>
-        </details>
+        <div class="home-actions">
+          <button id="startBtn" class="btn-primary" type="button">
+            <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/></svg>
+            <span>Başla</span>
+          </button>
+          <p id="setupWarning" class="warning" hidden></p>
+          <button id="helpButton" class="link-btn" type="button">Nasıl kullanılır?</button>
+        </div>
       </div>
 
       <div id="live" hidden>
@@ -109,34 +75,14 @@
           <span id="timer" class="timer">0:00</span>
         </div>
 
-        <button id="orb" class="avatar idle" type="button" aria-label="Sam">
-          <svg viewBox="0 0 200 200" aria-hidden="true">
-            <defs>
-              <linearGradient id="faceGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0" class="face-top"/>
-                <stop offset="1" class="face-bottom"/>
-              </linearGradient>
-            </defs>
-            <circle class="avatar-glow" cx="100" cy="100" r="99"/>
-            <circle class="avatar-ring" cx="100" cy="100" r="91"/>
-            <circle class="avatar-face" cx="100" cy="100" r="78"/>
-            <g class="avatar-cheeks"><circle cx="63" cy="117" r="9"/><circle cx="137" cy="117" r="9"/></g>
-            <g class="avatar-look">
-              <g class="avatar-eyes"><ellipse cx="76" cy="90" rx="7" ry="9.5"/><ellipse cx="124" cy="90" rx="7" ry="9.5"/></g>
-            </g>
-            <ellipse id="mouth" class="avatar-mouth" cx="100" cy="128" rx="16" ry="3"/>
-          </svg>
+        <button id="orb" class="stage-char" type="button" aria-label="Karakter">
+          <div id="stageCharacter" class="character" data-state="idle"></div>
         </button>
         <p id="orbHint" class="state-hint"></p>
 
-        <div id="meter" class="meter" aria-hidden="true">
-          <span id="meterLabel" class="meter-label">Sen</span>
-          <span id="meterBars" class="meter-bars"></span>
-        </div>
-
         <p id="tipLine" class="tip-line"></p>
         <div class="dialog">
-          <p id="partnerLine" class="bubble sam"></p>
+          <p id="partnerLine" class="bubble sam" data-name="Sam"></p>
           <p id="interim" class="bubble you"></p>
         </div>
 
@@ -199,7 +145,7 @@
           </label>
           <label class="setting">
             <span class="setting-label">Adın (isteğe bağlı)</span>
-            <input name="learnerName" type="text" autocomplete="off" placeholder="Sam sana böyle hitap eder">
+            <input name="learnerName" type="text" autocomplete="off" placeholder="Karakter sana böyle hitap eder">
           </label>
         </div>
 
@@ -213,11 +159,12 @@
             </select>
           </label>
           <label class="setting">
-            <span class="setting-label">Sam'in sesi (Canlı mod)</span>
+            <span class="setting-label">Karakterin sesi (Canlı mod)</span>
             <select id="liveVoiceSelect" name="liveVoice"></select>
+            <span class="setting-desc">Karakter seçince onun sesi gelir; buradan değiştirebilirsin.</span>
           </label>
           <label class="setting toggle-row">
-            <span class="setting-label">Sözünü kesebileyim (Canlı mod)<span class="setting-desc">Araç hoparlöründen gelen ses Sam'i kendi kendine durduruyorsa kapat.</span></span>
+            <span class="setting-label">Sözünü kesebileyim (Canlı mod)<span class="setting-desc">Araç hoparlöründen gelen ses karakteri kendi kendine durduruyorsa kapat.</span></span>
             <input class="switch" name="bargeIn" type="checkbox">
           </label>
           <label class="setting toggle-row">
@@ -242,7 +189,7 @@
           <label class="setting">
             <span class="setting-label">Düşünme payı <output id="graceOut"></output></span>
             <input name="graceMs" type="range" min="0" max="4000" step="250">
-            <span class="setting-desc">Cümlenin ortasında durduğunda Sam'in cevaba geçmeden ne kadar beklediği.</span>
+            <span class="setting-desc">Cümlenin ortasında durduğunda cevaba geçmeden ne kadar beklesin.</span>
           </label>
           <label class="setting">
             <span class="setting-label">"Ara ara" geri bildirim sıklığı</span>
@@ -320,6 +267,79 @@
       </form>
     </section>
   </main>
+
+  <!-- Ses göstergesi: ekranın iki kenarında aşağıdan yukarı yükselir -->
+  <div class="edge-meter left" aria-hidden="true"><span></span></div>
+  <div class="edge-meter right" aria-hidden="true"><span></span></div>
+
+  <!-- Alttan açılan paneller -->
+  <dialog id="characterSheet" class="sheet" aria-labelledby="characterSheetTitle">
+    <div class="sheet-body">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2 id="characterSheetTitle">Sohbet arkadaşını seç</h2><button class="sheet-close" type="button" data-close aria-label="Kapat">✕</button></div>
+      <div id="characterList" class="char-grid"></div>
+    </div>
+  </dialog>
+
+  <dialog id="topicSheet" class="sheet" aria-labelledby="topicSheetTitle">
+    <div class="sheet-body">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2 id="topicSheetTitle">Konu seç</h2><button class="sheet-close" type="button" data-close aria-label="Kapat">✕</button></div>
+      <div id="topicChips"></div>
+      <div class="input-icon">
+        <svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>
+        <input id="customTopic" type="text" autocomplete="off" enterkeyhint="done" placeholder="ya da kendi konunu yaz (ör. ordering coffee)">
+      </div>
+    </div>
+  </dialog>
+
+  <dialog id="optionsSheet" class="sheet" aria-labelledby="optionsSheetTitle">
+    <div class="sheet-body">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2 id="optionsSheetTitle">Sohbet ayarları</h2><button class="sheet-close" type="button" data-close aria-label="Kapat">✕</button></div>
+      <div class="option">
+        <span class="option-label">Seviye</span>
+        <div id="levelSeg" class="segmented" role="radiogroup" aria-label="Seviye"></div>
+      </div>
+      <div class="option">
+        <span class="option-label">Geri bildirim</span>
+        <div id="feedbackSeg" class="segmented" role="radiogroup" aria-label="Geri bildirim"></div>
+      </div>
+      <div class="option">
+        <span class="option-label">Ses modu</span>
+        <div id="modeSeg" class="segmented" role="radiogroup" aria-label="Ses modu"></div>
+      </div>
+      <p id="modeHint" class="hint"></p>
+      <button class="btn-primary" type="button" data-close style="margin-top:18px;height:52px;font-size:16px">Tamam</button>
+    </div>
+  </dialog>
+
+  <dialog id="helpSheet" class="sheet" aria-labelledby="helpSheetTitle">
+    <div class="sheet-body">
+      <div class="sheet-grip"></div>
+      <div class="sheet-head"><h2 id="helpSheetTitle">Nasıl kullanılır?</h2><button class="sheet-close" type="button" data-close aria-label="Kapat">✕</button></div>
+      <p class="muted" style="margin:0 0 14px">Başla'ya bas ve konuş. Sustuğunda cevap kendiliğinden gelir; hiçbir yere basman gerekmez.</p>
+      <h3 class="section-title" style="margin-top:0">Sesli komutlar</h3>
+      <ul class="cmd-list">
+        <li><span class="say">"feedback"</span><span class="does">son hatalarını söyler</span></li>
+        <li><span class="say">"quiz me"</span><span class="does">kelime testi</span></li>
+        <li><span class="say">"repeat"</span><span class="does">son cümleyi tekrarlar</span></li>
+        <li><span class="say">"slower" / "faster"</span><span class="does">konuşma hızı</span></li>
+        <li><span class="say">"new topic"</span><span class="does">konu değiştirir</span></li>
+        <li><span class="say">"hold on"</span><span class="does">bekler</span></li>
+        <li><span class="say">"that's all for today"</span><span class="does">özet verip bitirir</span></li>
+      </ul>
+      <h3 class="section-title">Sorabileceklerin</h3>
+      <ul class="cmd-list">
+        <li><span class="say">"What's the weather like tomorrow?"</span><span class="does">hava durumu</span></li>
+        <li><span class="say">"Any news about Serbia?"</span><span class="does">son haberler</span></li>
+        <li><span class="say">"Tell me about the Hagia Sophia."</span><span class="does">Wikipedia</span></li>
+        <li><span class="say">"How much is the dollar today?"</span><span class="does">döviz</span></li>
+      </ul>
+      <h3 class="section-title">Direksiyon / kulaklık tuşları</h3>
+      <p class="muted" style="margin:0">▶❚❚ duraklat-devam · ⏭ yeni konu · ⏮ tekrar. Duraklatınca devam için karaktere dokunabilirsin.</p>
+    </div>
+  </dialog>
 
   <nav class="tabs">
     <button type="button" data-view="talk" class="active">

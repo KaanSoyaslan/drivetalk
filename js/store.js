@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS = {
   learnerName: '',
   partnerModel: 'gemini-3.5-flash-lite',
   coachModel: 'gemini-3.8-flash',
+  character: 'sam', // characters.js
   voiceMode: 'classic', // 'classic' = telefonun sesi, 'live' = Gemini Live
   liveModel: 'gemini-3.8-live',
   liveVoice: 'Puck',

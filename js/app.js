@@ -12,6 +12,7 @@ import { lookUp, topicMaterial, currentPosition, LOOKUP_LABELS } from './lookup.
 import { LiveClient, LIVE_VOICES } from './live.js';
 import { MockLiveSocket } from './live-mock.js';
 import { MediaKeys } from './media-keys.js';
+import { CHARACTERS, characterOf, characterSVG } from './characters.js';
 import { parseCommand } from './commands.js';
 
 const $ = (id) => document.getElementById(id);
@@ -59,7 +60,7 @@ const STATE_LABELS = {
   idle: 'Hazır',
   listening: 'Dinliyorum',
   thinking: 'Düşünüyor',
-  speaking: 'Sam konuşuyor',
+  speaking: 'Konuşuyor',
   paused: 'Duraklatıldı',
   summary: 'Özet hazırlanıyor',
 };
@@ -67,21 +68,23 @@ const STATE_LABELS = {
 function stateHint(name) {
   const live = session instanceof LiveSession;
   switch (name) {
-    case 'listening': return live ? 'Konuş; sustuğunda Sam cevap verir.' : 'Konuş; sustuğunda kendiliğinden gönderilir.';
-    case 'speaking': return live && settings.bargeIn ? 'Araya girmek için konuşman yeterli.' : 'Atlamak için Sam\'e dokun.';
-    case 'paused': return live ? 'Devam için Sam\'e dokun.' : 'Devam için Sam\'e dokun ya da "continue" de.';
+    case 'listening': return live ? 'Konuş; sustuğunda cevap verir.' : 'Konuş; sustuğunda kendiliğinden gönderilir.';
+    case 'speaking': return live && settings.bargeIn ? 'Araya girmek için konuşman yeterli.' : 'Atlamak için karaktere dokun.';
+    case 'paused': return live ? 'Devam için karaktere dokun.' : 'Devam için karaktere dokun ya da "continue" de.';
     case 'summary': return 'Hemen bitirmek için Bitir\'e bas.';
     default: return '';
   }
 }
 
+// Durum hem sahneye (renkler), hem karaktere (pozlar), hem sayfaya (kenar göstergesinin rengi) yazılır.
 const ui = {
   current: 'idle',
   state(name, hint) {
     this.current = name;
     $('live').dataset.state = name;
-    $('orb').setAttribute('class', `avatar ${name}`);
-    $('orbLabel').textContent = STATE_LABELS[name];
+    $('stageCharacter').dataset.state = name;
+    document.body.dataset.state = name;
+    $('orbLabel').textContent = name === 'speaking' ? `${characterOf(settings).name} konuşuyor` : STATE_LABELS[name];
     $('orbHint').textContent = hint ?? stateHint(name);
   },
   partner(text) { $('partnerLine').textContent = text; },
@@ -90,10 +93,8 @@ const ui = {
   error(text) { $('errorLine').textContent = text; },
 };
 
-// Ses seviyeleri: senin sesin halkayı ve çubukları, Sam'in sesi ağzını hareket ettirir.
-const METER_BARS = 16;
-const meterBars = Array.from({ length: METER_BARS }, () => el('span'));
-$('meterBars').replaceChildren(...meterBars);
+// Ses seviyeleri: senin sesin ekran kenarlarındaki göstergeyi ve karakterin ışığını, karakterin
+// sesi ağzını, ellerini ve kaşlarını oynatır.
 const levelToUnit = (rms) => clamp((20 * Math.log10(Math.max(rms, 1e-5)) + 58) / 46, 0, 1); // -58 dB → 0, -12 dB → 1
 
 const meters = {
@@ -125,13 +126,12 @@ const meters = {
   render() {
     const samTurn = ui.current === 'speaking';
     const level = samTurn ? this.sam : this.mic;
-    $('orb').style.setProperty('--mic', (samTurn ? 0 : this.mic).toFixed(3));
-    $('mouth').setAttribute('ry', (3 + this.sam * 15).toFixed(1));
-    $('mouth').setAttribute('rx', (16 - this.sam * 3).toFixed(1));
-    $('meter').classList.toggle('sam', samTurn);
-    $('meterLabel').textContent = samTurn ? 'Sam' : 'Sen';
-    const lit = Math.round(level * METER_BARS);
-    meterBars.forEach((bar, i) => bar.classList.toggle('on', i < lit));
+    const stage = $('stageCharacter').style;
+    stage.setProperty('--mic', (samTurn ? 0 : this.mic).toFixed(3));
+    stage.setProperty('--sam', this.sam.toFixed(3));
+    stage.setProperty('--open', this.sam.toFixed(3));
+    stage.setProperty('--glow', level.toFixed(3));
+    document.body.style.setProperty('--level', level.toFixed(3));
   },
 };
 
@@ -1088,11 +1088,10 @@ const SEGMENTS = {
   modeSeg: { key: 'voiceMode', options: [['classic', 'Klasik'], ['live', 'Canlı']] },
 };
 
-const LEVEL_NAMES = { A2: 'temel', B1: 'orta', B2: 'orta üstü', C1: 'ileri' };
-const FEEDBACK_NAMES = { periodic: 'ara ara geri bildirim', instant: 'anında geri bildirim', end: 'geri bildirim sonda' };
+const FEEDBACK_NAMES = { periodic: 'Ara ara', instant: 'Anında', end: 'Sonda' };
 const MODE_HINTS = {
   classic: 'Klasik: telefonun sesi ve konuşma tanıması. Her cevap için birkaç saniye bekler.',
-  live: 'Canlı: Sam doğal bir sesle anında cevap verir, sözünü kesebilirsin. Açılamazsa Klasik moda geçer.',
+  live: 'Canlı: karakter doğal bir sesle anında cevap verir, sözünü kesebilirsin. Açılamazsa Klasik moda geçer.',
 };
 
 function renderSegments() {
@@ -1122,15 +1121,65 @@ function refreshSetup() {
   $('modePill').textContent = live ? 'Canlı' : 'Klasik';
   $('modePill').classList.toggle('live', live);
   $('modeHint').textContent = MODE_HINTS[settings.voiceMode] || '';
-  $('startMeta').textContent = `${topicLabel()} · ${settings.level} ${LEVEL_NAMES[settings.level] || ''} · ${FEEDBACK_NAMES[settings.feedbackMode] || ''}`;
+  $('topicValue').textContent = topicLabel();
+  $('optionsValue').textContent = `${settings.level} · ${FEEDBACK_NAMES[settings.feedbackMode] || ''} · ${live ? 'Canlı' : 'Klasik'}`;
+  const character = characterOf(settings);
+  $('homeTitle').textContent = `Merhaba, ben ${character.name}!`;
+  if ($('homeCharacter').dataset.character !== character.id) {
+    $('homeCharacter').dataset.character = character.id;
+    $('homeCharacter').innerHTML = characterSVG(character);
+  }
   renderSegments();
+}
+
+// ---------- Alttan açılan paneller ----------
+
+function openSheet(id) {
+  const sheet = $(id);
+  if (!sheet.open) sheet.showModal();
+}
+
+for (const sheet of document.querySelectorAll('dialog.sheet')) {
+  // Panelin dışına (karartılmış alana) dokununca kapanır.
+  sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); });
+  for (const button of sheet.querySelectorAll('[data-close]')) button.addEventListener('click', () => sheet.close());
+}
+
+$('charButton').addEventListener('click', () => { renderCharacters(); openSheet('characterSheet'); });
+$('topicButton').addEventListener('click', () => { renderTopics(); openSheet('topicSheet'); });
+$('optionsButton').addEventListener('click', () => openSheet('optionsSheet'));
+$('helpButton').addEventListener('click', () => openSheet('helpSheet'));
+
+// Karakter seçilince Canlı moddaki sesi de onun sesi olur (Ayarlar'dan değiştirilebilir).
+function renderCharacters() {
+  $('characterList').replaceChildren(...CHARACTERS.map((character) => {
+    const preview = el('div', { class: 'character', 'data-state': 'idle' });
+    preview.innerHTML = characterSVG(character);
+    const voice = LIVE_VOICES.find(([value]) => value === character.voice)?.[1] || character.voice;
+    return el('button', {
+      type: 'button',
+      class: `char-card${settings.character === character.id ? ' selected' : ''}`,
+      onclick: () => {
+        settings.character = character.id;
+        settings.liveVoice = character.voice;
+        saveSettings(settings);
+        fillSettingsForm();
+        refreshSetup();
+        $('characterSheet').close();
+      },
+    }, preview, el('b', {}, character.name), el('small', {}, character.desc), el('span', { class: 'voice' }, `Canlı mod sesi: ${voice.split(' – ')[0]}`));
+  }));
 }
 
 function startSession({ forceClassic = false } = {}) {
   const live = liveSelected() && !forceClassic;
   if (session?.active || setupProblems(live).length) return;
+  const character = characterOf(settings);
   speaker.rate = settings.rate;
   speaker.voiceURI = settings.voiceURI;
+  speaker.pitch = character.pitch;
+  $('stageCharacter').innerHTML = characterSVG(character);
+  $('partnerLine').dataset.name = character.name;
   const llm = isDemo() ? createMockGemini() : createGemini(settings.apiKey.trim());
   if (live) {
     // Ses bağlamı dokunuşun içinde açılır; mobil Chrome sonradan açılanı askıda başlatabiliyor.
@@ -1192,13 +1241,13 @@ function renderTopics() {
       settings.customTopic = '';
       $('customTopic').value = '';
       saveSettings(settings);
-      renderTopics();
       refreshSetup();
+      $('topicSheet').close();
     },
   }, topic.label);
   $('topicChips').replaceChildren(...TOPIC_GROUPS.map(([group, label]) => el('div', { class: 'topic-group' },
     el('p', { class: 'group-label' }, label),
-    el('div', { class: 'chip-row' }, TOPICS.filter((t) => t.group === group).map(chip)))));
+    el('div', { class: 'chip-wrap' }, TOPICS.filter((t) => t.group === group).map(chip)))));
 }
 
 $('customTopic').value = settings.customTopic;
@@ -1207,6 +1256,9 @@ $('customTopic').addEventListener('input', (e) => {
   saveSettings(settings);
   renderTopics();
   refreshSetup();
+});
+$('customTopic').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') $('topicSheet').close();
 });
 
 $('startBtn').addEventListener('click', () => startSession());
@@ -1558,6 +1610,7 @@ $('useLocation').addEventListener('change', async (e) => {
 $('testVoice').addEventListener('click', () => {
   speaker.rate = settings.rate;
   speaker.voiceURI = settings.voiceURI;
+  speaker.pitch = characterOf(settings).pitch;
   speaker.speak('Hi! This is how I sound. Let\'s practise some English together.');
 });
 

@@ -1,6 +1,7 @@
 // Sohbet partneri, koç (düzeltme), kelime kontrolü ve oturum özeti için istemler.
 import { parseJson, GeminiError } from './gemini.js';
 import { LOOKUP_KINDS } from './lookup.js';
+import { CHARACTERS, characterOf } from './characters.js';
 
 export const TOPIC_GROUPS = [['talk', 'Sohbet'], ['roleplay', 'Rol yapma'], ['practice', 'Pratik']];
 
@@ -33,7 +34,7 @@ const LEVELS = {
   C1: 'Speak fully naturally, with idioms and varied vocabulary, like with a native-speaker friend.',
 };
 
-const PARTNER_NAME = 'Sam';
+const partnerName = (settings) => characterOf(settings).name;
 
 // En hızlı yanıt için düşünmeyi en aza indir; 3.8 Flash "minimal" desteklemiyor.
 const lowestThinking = (model) => (/3\.8/.test(model) ? 'low' : 'minimal');
@@ -81,6 +82,7 @@ const ROLEPLAY_RULE = '- This is a role-play. In your first turn, set the scene 
 // mode: 'text' düz cevap, 'json' canlı bilgi kararıyla JSON cevap, 'live' Gemini Live sesli sohbet.
 function partnerSystem(settings, profile, material, { mode = 'text' } = {}) {
   const topic = currentTopic(settings);
+  const character = characterOf(settings);
   const who = settings.learnerName?.trim() ? `${settings.learnerName.trim()}, a` : 'a';
   const focus = profile.focus.map((f) => f.en).filter(Boolean);
   const practice = (profile.practice || []).filter(Boolean);
@@ -90,9 +92,9 @@ function partnerSystem(settings, profile, material, { mode = 'text' } = {}) {
     : 'Usually 1 to 3 short sentences (at most 45 words); when you are telling the learner about something (news, facts, information they asked for), up to 5 sentences (at most 80 words).';
   const speech = mode === 'live'
     ? `- You are talking by voice in real time. ${length} Speak clearly and a little slower than you would with a native-speaker friend. If the learner asks you to speak slower or faster, or to repeat, do so.`
-    : `- Your text is read aloud by text-to-speech. Write only what ${PARTNER_NAME} says, as natural spoken sentences. ${length} No lists, markdown, emojis, URLs, stage directions or phonetic spellings.`;
+    : `- Your text is read aloud by text-to-speech. Write only what ${character.name} says, as natural spoken sentences. ${length} No lists, markdown, emojis, URLs, stage directions or phonetic spellings.`;
   return [
-    `You are ${PARTNER_NAME}, a warm, curious and well-informed English conversation partner. You are talking with ${who} native Turkish speaker (CEFR ${settings.level}) who is practising spoken English hands-free while driving.`,
+    `You are ${character.name}, ${character.persona}. You are talking with ${who} native Turkish speaker (CEFR ${settings.level}) who is practising spoken English hands-free while driving.`,
     `Topic: ${topicPrompt(settings)}.`,
     `Language level: ${LEVELS[settings.level] || LEVELS.B1}`,
     `It is now ${now} (the learner's local time).`,
@@ -112,13 +114,14 @@ function partnerSystem(settings, profile, material, { mode = 'text' } = {}) {
   ].filter(Boolean).join('\n');
 }
 
-function transcript(turns, limit = 14) {
+function transcript(turns, name, limit = 14) {
   return turns.slice(-limit)
-    .map((t) => `${t.role === 'partner' ? PARTNER_NAME : 'Learner'}: ${t.text}`)
+    .map((t) => `${t.role === 'partner' ? name : 'Learner'}: ${t.text}`)
     .join('\n');
 }
 
-const cleanSpeech = (text) => text.replace(/^\s*(Sam|Partner)\s*:\s*/i, '').replace(/[*_#`]/g, '').trim();
+const SPEAKER_PREFIX = new RegExp(`^\\s*(${['Partner', ...CHARACTERS.map((c) => c.name)].join('|')})\\s*:\\s*`, 'i');
+const cleanSpeech = (text) => text.replace(SPEAKER_PREFIX, '').replace(/[*_#`]/g, '').trim();
 
 const PARTNER_TASKS = {
   open: 'This is the start of the conversation. Greet the learner in one short sentence and ask an easy first question about the topic.',
@@ -152,7 +155,7 @@ export async function partnerOpener(llm, settings, profile, turns, kind, materia
     purpose: kind,
     model: settings.partnerModel,
     system: partnerSystem(settings, profile, material),
-    input: `${turns.length ? `Conversation so far:\n${transcript(turns)}\n\n` : ''}${task}`,
+    input: `${turns.length ? `Conversation so far:\n${transcript(turns, partnerName(settings))}\n\n` : ''}${task}`,
     thinking: lowestThinking(settings.partnerModel),
     maxTokens: 800,
   });
@@ -177,7 +180,7 @@ export async function partnerTurn(llm, settings, profile, turns, material = '') 
     purpose: 'reply',
     model: settings.partnerModel,
     system: partnerSystem(settings, profile, material, { mode: 'json' }),
-    input: `Conversation so far:\n${transcript(turns.slice(0, -1))}\n\nThe learner just said: "${last.text}"\n\nWrite ${PARTNER_NAME}'s next reply as JSON.`,
+    input: `Conversation so far:\n${transcript(turns.slice(0, -1), partnerName(settings))}\n\nThe learner just said: "${last.text}"\n\nWrite ${partnerName(settings)}'s next reply as JSON.`,
     schema: REPLY_SCHEMA,
     thinking: lowestThinking(settings.partnerModel),
     maxTokens: 800,
@@ -202,10 +205,10 @@ export async function partnerAnswer(llm, settings, profile, turns, found, materi
     model: settings.partnerModel,
     system: partnerSystem(settings, profile, material),
     input: [
-      `Conversation so far:\n${transcript(turns.slice(0, -1))}`,
+      `Conversation so far:\n${transcript(turns.slice(0, -1), partnerName(settings))}`,
       `The learner just said: "${last.text}"`,
       `You looked this up just now (${found.source}):\n${found.text}`,
-      `Now answer the learner as ${PARTNER_NAME}, using this information for anything current. Up to 5 short spoken sentences (at most 80 words) in simple English for their level. Round numbers naturally ("about 18 degrees") and do not read out sources, links or brackets. If the information does not answer the question, say so honestly and share what you did find. End with a question about the learner's opinion or experience.`,
+      `Now answer the learner as ${partnerName(settings)}, using this information for anything current. Up to 5 short spoken sentences (at most 80 words) in simple English for their level. Round numbers naturally ("about 18 degrees") and do not read out sources, links or brackets. If the information does not answer the question, say so honestly and share what you did find. End with a question about the learner's opinion or experience.`,
     ].join('\n\n'),
     thinking: lowestThinking(settings.partnerModel),
     maxTokens: 800,

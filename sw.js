@@ -1,5 +1,5 @@
 // Uygulama dosyalarını önbelleğe alır; önce ağdan dener ki güncellemeler hemen gelsin.
-const CACHE = 'drivetalk-v4';
+const CACHE = 'drivetalk-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -15,6 +15,7 @@ const ASSETS = [
   'js/live-mock.js',
   'js/pcm-worklet.js',
   'js/media-keys.js',
+  'js/characters.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

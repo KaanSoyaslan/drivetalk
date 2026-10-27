@@ -182,6 +182,7 @@ export class Speaker {
   constructor() {
     this.voiceURI = '';
     this.rate = 1;
+    this.pitch = 1; // karakterin ses tonu
     this.token = 0;
     this.held = new Set(); // Chrome, referansı tutulmayan utterance'ların onend'ini kaçırabiliyor
     this.speaking = false;
@@ -231,6 +232,7 @@ export class Speaker {
         utterance.lang = 'en-US';
       }
       utterance.rate = this.rate;
+      utterance.pitch = this.pitch;
       this.held.add(utterance);
 
       // onend hiç gelmezse takılıp kalmamak için süreye dayalı emniyet.
