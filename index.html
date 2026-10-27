@@ -1,0 +1,232 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0f1115">
+  <meta name="description" content="Araba sürerken eller serbest İngilizce konuşma pratiği.">
+  <title>DriveTalk</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+  <script type="module" src="js/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <h1>DriveTalk</h1>
+    <span id="demoBadge" class="badge" hidden>DEMO</span>
+  </header>
+
+  <main>
+    <!-- Konuş -->
+    <section id="view-talk" class="view active">
+      <div id="setup">
+        <p class="field-label">Konu</p>
+        <div id="topicChips"></div>
+        <input id="customTopic" type="text" autocomplete="off" placeholder="veya kendi konunu yaz (ör. ordering at a restaurant)">
+
+        <div class="row">
+          <label class="field">Seviye
+            <select id="levelSelect">
+              <option value="A2">A2 – temel</option>
+              <option value="B1">B1 – orta</option>
+              <option value="B2">B2 – orta üstü</option>
+              <option value="C1">C1 – ileri</option>
+            </select>
+          </label>
+          <label class="field">Geri bildirim
+            <select id="feedbackSelect">
+              <option value="periodic">Ara ara</option>
+              <option value="instant">Anında</option>
+              <option value="end">Sadece sonda</option>
+            </select>
+          </label>
+          <label class="field">Ses
+            <select id="modeSelect">
+              <option value="classic">Klasik</option>
+              <option value="live">Canlı</option>
+            </select>
+          </label>
+        </div>
+        <p id="modeHint" class="hint"></p>
+
+        <button id="startBtn" class="big primary" type="button">Başla</button>
+        <p id="setupWarning" class="warning" hidden></p>
+
+        <details class="help">
+          <summary>Sesli komutlar</summary>
+          <ul>
+            <li><b>"feedback"</b> – son hatalarını söyler</li>
+            <li><b>"quiz me"</b> – kelime defterinden test</li>
+            <li><b>"repeat"</b> / <b>"say that again"</b> – son cümleyi tekrarlar</li>
+            <li><b>"slower"</b> / <b>"faster"</b> – konuşma hızı</li>
+            <li><b>"new topic"</b> – konu değiştirir</li>
+            <li><b>"pause"</b> / <b>"hold on"</b> – bekler, <b>"continue"</b> ile devam</li>
+            <li><b>"end session"</b> / <b>"that's all for today"</b> – özet verip bitirir</li>
+          </ul>
+          <p>Klasik modda komutlar kısa söylendiğinde algılanır (en fazla 6 kelime). Canlı modda Sam ne istediğini kendisi anlar. Canlı modda duraklatınca devam etmek için daireye dokun ya da direksiyondaki ▶ tuşuna bas.</p>
+          <p>Direksiyon / kulaklık tuşları: ▶❚❚ duraklat-devam, ⏭ yeni konu, ⏮ tekrar.</p>
+        </details>
+
+        <details class="help">
+          <summary>Sam'e sorabileceklerin (canlı bilgi)</summary>
+          <ul>
+            <li><b>"What's the weather like tomorrow?"</b> – hava durumu</li>
+            <li><b>"Is there any news about Serbia?"</b> – son haberler</li>
+            <li><b>"Tell me about the Hagia Sophia."</b> – Wikipedia'dan bilgi</li>
+            <li><b>"How much is the dollar today?"</b> – döviz kuru</li>
+          </ul>
+          <p>Sam gerekince kendisi bakar; bilgiler telefondan ücretsiz kaynaklardan alınır. <b>Gündem</b> ve <b>İlginç bilgiler</b> konularında sohbet günün haberleri ve ilginç bilgilerle başlar.</p>
+        </details>
+      </div>
+
+      <div id="live" hidden>
+        <button id="orb" class="orb" type="button" aria-live="polite">
+          <span id="orbLabel">Hazır</span>
+          <small id="orbHint"></small>
+        </button>
+        <p id="tipLine" class="tip-line"></p>
+        <p id="partnerLine" class="partner-line"></p>
+        <p id="interim" class="interim"></p>
+        <form id="typeForm" class="type-form" hidden>
+          <input id="typeInput" type="text" autocomplete="off" placeholder="Yaz ve Enter (yazarak test modu)">
+          <button type="submit">Gönder</button>
+        </form>
+        <p id="errorLine" class="error"></p>
+        <div class="row live-buttons">
+          <button id="pauseBtn" class="big" type="button">Duraklat</button>
+          <button id="endBtn" class="big danger" type="button">Bitir</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Geçmiş -->
+    <section id="view-history" class="view">
+      <div id="historyList"></div>
+      <div id="sessionDetail" hidden></div>
+    </section>
+
+    <!-- İlerleme -->
+    <section id="view-progress" class="view">
+      <div id="progressStats" class="progress"></div>
+      <h2 class="section-title">Kelime defteri <span id="vocabCount"></span></h2>
+      <p class="muted">Oturum özetlerinden otomatik dolar. Sohbette <b>"quiz me"</b> diyerek ya da <b>Kelime tekrarı</b> konusuyla tekrar edersin; doğru bildikçe daha seyrek sorulur.</p>
+      <form id="vocabForm" class="vocab-form">
+        <input id="vocabEn" type="text" autocomplete="off" placeholder="İngilizce ifade (ör. look forward to)" required>
+        <input id="vocabTr" type="text" autocomplete="off" placeholder="Türkçesi (isteğe bağlı)">
+        <button type="submit">Ekle</button>
+      </form>
+      <ul id="vocabList" class="vocab-list"></ul>
+    </section>
+
+    <!-- Ayarlar -->
+    <section id="view-settings" class="view">
+      <form id="settingsForm" class="settings">
+        <label class="field">Gemini API anahtarı
+          <span class="inline">
+            <input id="apiKey" name="apiKey" type="password" autocomplete="off" spellcheck="false" placeholder="AI Studio'dan aldığın anahtar">
+            <button id="toggleKey" type="button">Göster</button>
+          </span>
+          <small>Anahtar sadece bu cihazda saklanır. <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">Anahtar al</a></small>
+        </label>
+
+        <label class="field">Adın (isteğe bağlı)
+          <input name="learnerName" type="text" autocomplete="off" placeholder="Sohbet partneri sana böyle hitap eder">
+        </label>
+
+        <fieldset class="group">
+          <legend>Ses modu</legend>
+          <label class="field">Mod
+            <select name="voiceMode">
+              <option value="classic">Klasik – telefonun sesi ve konuşma tanıması</option>
+              <option value="live">Canlı – Gemini Live: doğal ses, sözünü kesebilirsin</option>
+            </select>
+          </label>
+          <label class="field">Sam'in sesi (Canlı mod)
+            <select id="liveVoiceSelect" name="liveVoice"></select>
+          </label>
+          <label class="check"><input name="bargeIn" type="checkbox"> Sam konuşurken sözünü kesebileyim (Canlı mod)</label>
+          <small>Araç hoparlöründen gelen ses Sam'i kendi kendine durduruyorsa bunu kapat.</small>
+          <label class="check"><input name="mediaKeys" type="checkbox"> Direksiyon / kulaklık tuşlarıyla kontrol</label>
+          <small>▶❚❚ duraklat-devam · ⏭ yeni konu · ⏮ tekrar. Sorun çıkarırsa kapat.</small>
+        </fieldset>
+
+        <label class="field">İngilizce ses (Klasik mod)
+          <span class="inline">
+            <select id="voiceSelect" name="voiceURI"></select>
+            <button id="testVoice" type="button">Dene</button>
+          </span>
+        </label>
+
+        <label class="field">Konuşma hızı (Klasik mod) <output id="rateOut"></output>
+          <input name="rate" type="range" min="0.6" max="1.4" step="0.05">
+        </label>
+
+        <label class="field">Düşünme payı <output id="graceOut"></output>
+          <input name="graceMs" type="range" min="0" max="4000" step="250">
+          <small>Cümlenin ortasında durduğunda cevaba geçmeden önce ne kadar beklesin.</small>
+        </label>
+
+        <label class="field">"Ara ara" geri bildirim sıklığı (kaç cümlede bir)
+          <input name="feedbackEvery" type="number" min="2" max="20" step="1">
+        </label>
+
+        <fieldset class="group">
+          <legend>Canlı bilgi (ücretsiz, anahtarsız)</legend>
+          <label class="check"><input name="lookups" type="checkbox"> Sam gerekince internetten baksın (hava durumu, haberler, Wikipedia, döviz)</label>
+          <label class="field">Şehrin (hava durumu için)
+            <input name="homeCity" type="text" autocomplete="off" placeholder="ör. Istanbul">
+          </label>
+          <label class="check"><input id="useLocation" name="useLocation" type="checkbox"> Bunun yerine telefonun konumunu kullan</label>
+          <small id="locationNote" aria-live="polite"></small>
+        </fieldset>
+
+        <details class="help">
+          <summary>Gelişmiş</summary>
+          <label class="field">Sohbet modeli (Klasik mod)
+            <input name="partnerModel" type="text" list="modelList" spellcheck="false">
+          </label>
+          <label class="field">Koç (düzeltme) modeli
+            <input name="coachModel" type="text" list="modelList" spellcheck="false">
+          </label>
+          <datalist id="modelList">
+            <option value="gemini-3.5-flash-lite">
+            <option value="gemini-3.1-flash-lite">
+            <option value="gemini-3.8-flash">
+            <option value="gemini-3.6-flash">
+          </datalist>
+          <label class="field">Canlı mod modeli
+            <input name="liveModel" type="text" list="liveModelList" spellcheck="false">
+          </label>
+          <datalist id="liveModelList">
+            <option value="gemini-3.8-live">
+            <option value="gemini-3.1-flash-live-preview">
+          </datalist>
+          <label class="check"><input name="demo" type="checkbox"> Demo modu (API anahtarı olmadan, hazır cevaplarla)</label>
+          <label class="check"><input name="typeMode" type="checkbox"> Yazarak test modu (mikrofon yerine klavye)</label>
+        </details>
+
+        <div class="focus-box">
+          <p class="field-label">Üzerinde çalıştığın konular</p>
+          <ul id="focusList"></ul>
+          <button id="clearFocus" type="button">Sıfırla</button>
+        </div>
+
+        <div class="row">
+          <button id="exportData" type="button">Verileri indir (JSON)</button>
+          <button id="clearHistory" type="button" class="danger">Geçmişi sil</button>
+        </div>
+        <p id="settingsSaved" class="saved" aria-live="polite"></p>
+      </form>
+    </section>
+  </main>
+
+  <nav class="tabs">
+    <button type="button" data-view="talk" class="active">Konuş</button>
+    <button type="button" data-view="history">Geçmiş</button>
+    <button type="button" data-view="progress">İlerleme</button>
+    <button type="button" data-view="settings">Ayarlar</button>
+  </nav>
+</body>
+</html>
