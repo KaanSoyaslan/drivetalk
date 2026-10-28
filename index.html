@@ -93,6 +93,7 @@
           <div id="stageCharacter" class="character" data-state="idle"></div>
         </button>
         <p id="orbHint" class="state-hint"></p>
+        <p id="noiseLine" class="noise-line" aria-live="polite" hidden></p>
 
         <p id="tipLine" class="tip-line"></p>
         <div class="dialog">
@@ -208,6 +209,20 @@
           <label id="speakerRow" class="setting" hidden>
             <span class="setting-label">Hoparlör (Canlı mod)</span>
             <select id="speakerSelect"></select>
+          </label>
+          <label class="setting">
+            <span class="setting-label">Karakterin ses yüksekliği (Canlı mod) <output id="volumeOut"></output></span>
+            <input name="voiceVolume" type="range" min="1" max="5" step="0.25">
+            <span class="setting-desc">Arabada kısık geliyorsa %500'e kadar yükselt. Sohbette "louder" ya da "I can't hear you" demen de yeter.</span>
+          </label>
+          <label class="setting">
+            <span class="setting-label">Yol uğultusu filtresi (Canlı mod)</span>
+            <select name="noiseFilter">
+              <option value="auto">Otomatik – uğultu algılanınca açılır</option>
+              <option value="on">Her zaman açık</option>
+              <option value="off">Kapalı</option>
+            </select>
+            <span class="setting-desc">Açıkken lastik ve yol uğultusu kesilir, sadece konuşurken sesin gönderilir; karakter seni "Dinliyorum"da bekletmez.</span>
           </label>
           <label class="setting toggle-row">
             <span class="setting-label">Yankı engelleme (Canlı mod)<span class="setting-desc">Açık: sözünü kesebilirsin, ama Android sesi telefon görüşmesi gibi yönlendirir. Kapalı: ses müzik gibi, genelde daha net çalar; karakter konuşurken mikrofon dinlemez.</span></span>
@@ -364,6 +379,7 @@
         <li><span class="say">"quiz me"</span><span class="does">kelime testi</span></li>
         <li><span class="say">"repeat"</span><span class="does">son cümleyi tekrarlar</span></li>
         <li><span class="say">"slower" / "faster"</span><span class="does">konuşma hızı</span></li>
+        <li><span class="say">"louder" / "I can't hear you"</span><span class="does">sesini yükseltir (Canlı mod)</span></li>
         <li><span class="say">"new topic"</span><span class="does">konu değiştirir</span></li>
         <li><span class="say">"hold on"</span><span class="does">bekler</span></li>
         <li><span class="say">"that's all for today"</span><span class="does">özet verip bitirir</span></li>

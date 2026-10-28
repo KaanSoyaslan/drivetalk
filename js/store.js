@@ -19,6 +19,8 @@ export const DEFAULT_SETTINGS = {
   liveVoice: 'Puck',
   bargeIn: true,
   voiceProcessing: true, // Canlı mod mikrofonunda yankı engelleme + gürültü azaltma
+  noiseFilter: 'auto', // yol uğultusu filtresi (noise.js): 'auto' | 'on' | 'off'
+  voiceVolume: 1, // Canlı modda karakterin ses yüksekliği: 1 = %100, 5 = %500
   micId: '', // '' = telefon seçer (devices.js)
   micLabel: '',
   speakerId: '',

@@ -2,6 +2,7 @@
 // akar, Sam'in sesi geldikçe çalınır. Bağlantı ~10 dakikada bir yenilenir; oturum
 // "session resumption" ile kaldığı yerden sürer, uzun sohbetler için bağlam sıkıştırılır.
 import { micConstraints } from './devices.js';
+import { NoiseGuard } from './noise.js';
 
 const WS_URL = 'wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent';
 const INPUT_RATE = 16000;
@@ -12,6 +13,9 @@ const START_BUFFER_S = 0.15; // her cevabın başında küçük tampon: mobil a�
 const REPLY_TIMEOUT_MS = 12000; // Sam seni duyduktan sonra bu sürede cevap vermezse bağlantı yenilenir
 const LEVEL_STEP_MS = 50; // worklet'in seviye gönderme aralığı
 const ECHO_TAIL_MS = 350; // sözünü kesme kapalıyken Sam susunca mikrofon bu kadar (+ çıkış gecikmesi) daha kapalı kalır
+const HIGHPASS_HZ = 100; // giden sesten alçak uğultu kesilir
+const NOISY_HIGHPASS_HZ = 220; // gürültü filtresi devredeyken daha yukarıdan
+const PREROLL_CHUNKS = 3; // kapı açılınca son 300 ms de gönderilir: kelimenin başı kesilmesin
 
 export const LIVE_VOICES = [
   ['Puck', 'Puck – erkek, neşeli'],
@@ -74,9 +78,9 @@ export class LiveClient {
   }
 
   // config: { apiKey, model, voice, system, tools, silenceMs, bargeIn, voiceProcessing, micId, speakerId,
-  //          captureMic, audio, socketFactory }
+  //          noiseFilter ('auto' | 'on' | 'off'), volume (1–5), captureMic, audio, socketFactory }
   // events: onLearnerText, onPartnerText, onSpeaking, onInterrupted, onTurnComplete, onToolCall,
-  //         onReconnecting, onReconnected, onClosed, onMicProblem
+  //         onReconnecting, onReconnected, onClosed, onMicProblem, onNoise
   constructor(config, events = {}) {
     this.config = config;
     this.events = events;
@@ -99,8 +103,9 @@ export class LiveClient {
     this.playhead = 0;
     this.idleWaiters = [];
     this.turnWaiters = [];
-    // Yerel konuşma algılama (sunucunun algılamasına yedek)
-    this.noise = 0.005;
+    // Yerel konuşma algılama (sunucunun algılamasına yedek) ve gürültü kapısı (noise.js)
+    this.guard = null;
+    this.preroll = [];
     this.voiceMs = 0;
     this.quietMs = 0;
     this.userTalking = false;
@@ -120,7 +125,16 @@ export class LiveClient {
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 512;
     this.levelBuffer = new Float32Array(this.analyser.fftSize);
-    this.output.connect(this.analyser).connect(ctx.destination);
+    // Ses yükseltme (%100–500): yükseltilen ses sınırlayıcıdan geçer ki tepeler cızırdamasın.
+    this.boost = ctx.createGain();
+    this.boost.gain.value = this.config.volume || 1;
+    this.limiter = ctx.createDynamicsCompressor();
+    this.limiter.threshold.value = -3;
+    this.limiter.knee.value = 0;
+    this.limiter.ratio.value = 20;
+    this.limiter.attack.value = 0.002;
+    this.limiter.release.value = 0.15;
+    this.output.connect(this.analyser).connect(this.boost).connect(this.limiter).connect(ctx.destination);
     if (this.config.captureMic) await this.startMic();
     await this.connect();
     this.watchdog = setInterval(() => this.checkWatchdog(), 1000);
@@ -142,11 +156,13 @@ export class LiveClient {
     track?.addEventListener('ended', () => this.events.onMicProblem?.('Mikrofon bağlantısı kesildi.'));
     await this.ctx.audioWorklet.addModule(new URL('./pcm-worklet.js', import.meta.url));
     const source = this.ctx.createMediaStreamSource(this.stream);
-    this.worklet = new AudioWorkletNode(this.ctx, 'pcm-capture', { processorOptions: { chunkSize: 1600 } });
+    this.worklet = new AudioWorkletNode(this.ctx, 'pcm-capture', { processorOptions: { chunkSize: 1600, highpassHz: HIGHPASS_HZ } });
     this.worklet.port.onmessage = ({ data }) => {
       if (data.type === 'pcm') this.sendAudio(data.buffer);
-      else if (data.type === 'level') this.onMicLevel(data.rms);
+      else if (data.type === 'level') this.onMicLevel(data.rms, data.speech);
     };
+    this.guard = new NoiseGuard({ mode: this.config.noiseFilter || 'auto', onChange: (state) => this.onNoiseChange(state) });
+    this.onNoiseChange({ noisy: false, active: this.guard.active });
     const silent = this.ctx.createGain();
     silent.gain.value = 0;
     source.connect(this.worklet).connect(silent).connect(this.ctx.destination);
@@ -155,22 +171,34 @@ export class LiveClient {
     this.micPeak = 0;
   }
 
-  onMicLevel(rms) {
-    this.micLevel = this.micMuted ? 0 : rms;
+  // Gürültü filtresi devreye girince giden sesin alçak frekansları daha yukarıdan kesilir.
+  onNoiseChange(state) {
+    this.worklet?.port.postMessage({ type: 'highpass', hz: state.active ? NOISY_HIGHPASS_HZ : HIGHPASS_HZ });
+    this.events.onNoise?.(state);
+  }
+
+  onMicLevel(rms, speech = rms) {
+    this.guard.update(rms, speech);
+    // Kapı kapalıyken giden ses yok: gösterge de sönük kalır, sadece konuşunca yükselir.
+    const gated = this.guard.active && !this.guard.open;
+    this.micLevel = this.micMuted ? 0 : rms * (gated ? 0.2 : 1);
     this.micPeak = Math.max(this.micPeak, rms);
     if (!this.micWarned && Date.now() - this.micStartedAt > 6000 && this.micPeak < 1e-4) {
       this.micWarned = true;
       this.events.onMicProblem?.('Mikrofondan ses gelmiyor. Başka bir uygulama mikrofonu kullanıyor olabilir.');
     }
-    this.trackSpeech(rms);
+    this.trackSpeech();
   }
 
-  // Gürültü tabanını izleyen basit konuşma algılama. Sen susunca sunucuya "ses bitti" denir;
-  // sunucunun kendi algılaması gürültülü ortamda (araba) takılırsa bile sıra Sam'e geçer.
-  trackSpeech(rms) {
-    // Gürültü tabanı sessizlikte hızla iner, seste yavaşça yükselir; araç gürültüsü konuşmayı bastırmasın diye sınırlı.
-    this.noise = rms < this.noise ? this.noise * 0.6 + rms * 0.4 : Math.min(0.06, this.noise * 0.995 + rms * 0.005);
-    const voiced = rms > Math.max(this.noise * 2.5, 0.008) && !this.hearsEcho();
+  setVolume(volume) {
+    this.config.volume = volume;
+    this.boost?.gain.setTargetAtTime(volume, this.ctx.currentTime, 0.05);
+  }
+
+  // Konuşma algılama (noise.js). Sen susunca sunucuya "ses bitti" denir; sunucunun kendi
+  // algılaması gürültülü ortamda (araba) takılırsa bile sıra Sam'e geçer.
+  trackSpeech() {
+    const voiced = this.guard.voiced && !this.hearsEcho();
     if (voiced && !this.micMuted) {
       this.voiceMs += LEVEL_STEP_MS;
       this.quietMs = 0;
@@ -382,8 +410,24 @@ export class LiveClient {
     return !this.config.bargeIn && (this.speaking || performance.now() < this.echoUntil);
   }
 
+  // Gürültü kapısı kapalıyken uğultu yerine sessizlik gider (Gemini konuşmanın bittiğini anlar);
+  // kapı açılınca son 300 ms'nin gerçek sesi de gönderilir ki kelimenin başı kaybolmasın.
   sendAudio(buffer) {
     if (this.micMuted || this.hearsEcho()) return;
+    if (this.guard?.active) {
+      if (!this.guard.open) {
+        this.preroll.push(buffer);
+        if (this.preroll.length > PREROLL_CHUNKS) this.preroll.shift();
+        this.sendChunk(new ArrayBuffer(buffer.byteLength));
+        return;
+      }
+      for (const chunk of this.preroll) this.sendChunk(chunk);
+    }
+    this.preroll = [];
+    this.sendChunk(buffer);
+  }
+
+  sendChunk(buffer) {
     this.send({ realtimeInput: { audio: { data: toBase64(buffer), mimeType: `audio/pcm;rate=${INPUT_RATE}` } } });
   }
 

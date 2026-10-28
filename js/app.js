@@ -100,6 +100,24 @@ const ui = {
   interim(text) { setBubble($('interim'), text); },
   tip(text) { $('tipLine').textContent = text; },
   error(text) { $('errorLine').textContent = text; },
+  // Gürültü filtresinin durumu sahnede kısa bir uyarıyla gösterilir (noise.js, Klasik modda speech.js).
+  noiseTimer: 0,
+  noiseShown: false,
+  noise({ noisy = false, active = false, stalled = false, reset = false } = {}) {
+    const line = $('noiseLine');
+    clearTimeout(this.noiseTimer);
+    let text = '';
+    let temporary = false;
+    if (reset) this.noiseShown = false;
+    else if (active) text = noisy ? 'Yol uğultusu algılandı. Gürültü filtresi açık: sadece konuşman gönderiliyor.' : 'Gürültü filtresi açık: sadece konuşman gönderiliyor.';
+    else if (stalled) [text, temporary] = ['Arka planda gürültü var gibi: yazı durunca cümleni gönderiyorum.', true];
+    else if (this.noiseShown) [text, temporary] = ['Uğultu azaldı, gürültü filtresi kapandı.', true];
+    this.noiseShown = active;
+    if (text && line.textContent !== text) replay(line, 'enter');
+    line.textContent = text;
+    line.hidden = !text;
+    if (temporary) this.noiseTimer = setTimeout(() => { line.hidden = true; line.textContent = ''; }, 5000);
+  },
 };
 
 // Ses seviyeleri: senin sesin ekran kenarlarındaki göstergeyi ve karakterin ışığını, karakterin
@@ -241,7 +259,7 @@ class Session {
       playPause: () => this.togglePause(),
       next: () => this.mediaNext(),
       previous: () => this.mediaPrevious(),
-    });
+    }, { title: 'DriveTalk', artist: `${characterOf(settings).name} ile İngilizce pratik`, album: topicLabel() });
   }
 
   mediaNext() { this.queueCommand('newtopic'); }
@@ -767,6 +785,8 @@ class LiveSession extends Session {
         voiceProcessing: settings.voiceProcessing,
         micId: micId || '',
         speakerId: speakerId || '',
+        noiseFilter: settings.noiseFilter,
+        volume: settings.voiceVolume,
         captureMic: !settings.typeMode,
         audio: this.audio,
         socketFactory: isDemo() ? () => new MockLiveSocket() : null,
@@ -851,6 +871,7 @@ class LiveSession extends Session {
         this.stopWaiting?.();
       },
       onMicProblem: (message) => ui.error(message),
+      onNoise: (state) => ui.noise(state),
     };
   }
 
@@ -958,6 +979,21 @@ class LiveSession extends Session {
         (this.record.quiz ||= []).push({ phrase: String(args.phrase || ''), correct });
         this.save();
         return item ? 'saved' : 'This phrase is not in the notebook; continue anyway.';
+      }
+      case 'change_volume': {
+        const step = args.direction === 'down' ? -0.5 : 0.5;
+        const volume = clamp(settings.voiceVolume + step, 1, 5);
+        if (volume === settings.voiceVolume) {
+          return step > 0
+            ? 'Already at the maximum volume (500%). Briefly suggest turning up the car\'s volume.'
+            : 'Already at the normal volume; it can\'t go lower. Say so briefly.';
+        }
+        settings.voiceVolume = volume;
+        saveSettings(settings);
+        fillSettingsForm();
+        this.client?.setVolume(volume);
+        ui.tip(`Ses yüksekliği: %${Math.round(volume * 100)}`);
+        return `Your voice is now at ${Math.round(volume * 100)}% volume. Briefly ask if this is better.`;
       }
       case 'pause_session':
         this.afterTurn = 'pause';
@@ -1205,7 +1241,7 @@ function startSession({ forceClassic = false } = {}) {
     // Ses bağlamı dokunuşun içinde açılır; mobil Chrome sonradan açılanı askıda başlatabiliyor.
     session = new LiveSession({ llm, audio: LiveClient.createAudio() });
   } else {
-    const listener = settings.typeMode ? new TypedListener() : new Listener({ graceMs: settings.graceMs });
+    const listener = settings.typeMode ? new TypedListener() : new Listener({ graceMs: settings.graceMs, onStall: () => ui.noise({ stalled: true }) });
     session = new Session({ llm, listener });
   }
 
@@ -1217,6 +1253,7 @@ function startSession({ forceClassic = false } = {}) {
   ui.interim('');
   ui.tip('');
   ui.error('');
+  ui.noise({ reset: true });
   updatePauseButton();
   $('pauseBtn').disabled = false;
   $('endLabel').textContent = 'Bitir';
@@ -1591,6 +1628,7 @@ function fillSettingsForm() {
   form.elements.bargeIn.disabled = !settings.voiceProcessing; // yankı engelleme yokken araya girilemez
   $('rateOut').textContent = `${Number(settings.rate).toFixed(2)}×`;
   $('graceOut').textContent = `${(settings.graceMs / 1000).toFixed(2)} sn`;
+  $('volumeOut').textContent = `%${Math.round(settings.voiceVolume * 100)}`;
 }
 
 // Mikrofon ve hoparlör listesi. Kayıtlı aygıt şu an bağlı değilse de listede kalır ki seçim kaybolmasın.

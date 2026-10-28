@@ -23,6 +23,7 @@ export function installTouchFeedback() {
     ripple.style.cssText = `width:${size}px;height:${size}px;left:${e.clientX - rect.left - size / 2}px;top:${e.clientY - rect.top - size / 2}px`;
     target.append(ripple);
     ripple.addEventListener('animationend', () => ripple.remove());
+    setTimeout(() => ripple.remove(), 1500); // sayfa arka plandaysa animasyon bitmeyebilir
   }, { passive: true });
   // Titreşim tıklamada: kaydırırken parmak bir düğmeye değince titremesin.
   document.addEventListener('click', (e) => {
@@ -77,4 +78,5 @@ export function burst(from) {
   wave.style.top = `${rect.top + rect.height / 2}px`;
   document.body.append(wave);
   wave.addEventListener('animationend', () => wave.remove());
+  setTimeout(() => wave.remove(), 1500);
 }

@@ -1,19 +1,18 @@
 // Mikrofon sesini Gemini Live'ın istediği biçime çevirir: 16 kHz, 16 bit, mono PCM.
 // Ses bağlamı cihazın kendi hızında (çoğunlukla 48 kHz) çalışır; bazı Android telefonlar
 // zorla 16 kHz açılan bağlamda mikrofonu sessiz veriyor. Ses önce alçak geçiren filtreden
-// geçirilip 16 kHz'e indirilir. Ayrıca ses seviyesi göstergesi için 50 ms'de bir seviye yollar.
+// geçirilip 16 kHz'e indirilir. Lastik ve yol uğultusu çoğunlukla alçak frekanslıdır; giden sesten
+// yüksek geçiren filtreyle kesilir (gürültülü ortamda daha yukarıdan). 50 ms'de bir iki seviye
+// yollanır: tüm sesin ve konuşma bandının (300–3400 Hz) seviyesi (noise.js).
 const TARGET_RATE = 16000;
 
-function lowpass(fs, f0, q = Math.SQRT1_2) {
+function biquad(type, fs, f0, q = Math.SQRT1_2, state = { x1: 0, x2: 0, y1: 0, y2: 0 }) {
   const w0 = (2 * Math.PI * f0) / fs;
   const cos = Math.cos(w0);
   const alpha = Math.sin(w0) / (2 * q);
   const a0 = 1 + alpha;
-  return {
-    b0: (1 - cos) / 2 / a0, b1: (1 - cos) / a0, b2: (1 - cos) / 2 / a0,
-    a1: (-2 * cos) / a0, a2: (1 - alpha) / a0,
-    x1: 0, x2: 0, y1: 0, y2: 0,
-  };
+  const b = type === 'lowpass' ? [(1 - cos) / 2, 1 - cos, (1 - cos) / 2] : [(1 + cos) / 2, -(1 + cos), (1 + cos) / 2];
+  return { ...state, b0: b[0] / a0, b1: b[1] / a0, b2: b[2] / a0, a1: (-2 * cos) / a0, a2: (1 - alpha) / a0 };
 }
 
 function filter(f, x) {
@@ -32,12 +31,23 @@ class PcmCapture extends AudioWorkletProcessor {
     this.chunk = new Int16Array(this.size);
     this.length = 0;
     this.ratio = sampleRate / TARGET_RATE;
-    this.filters = this.ratio > 1 ? [lowpass(sampleRate, 7000), lowpass(sampleRate, 7000)] : [];
+    this.lowpass = this.ratio > 1 ? [biquad('lowpass', sampleRate, 7000), biquad('lowpass', sampleRate, 7000)] : [];
+    this.setHighpass(options.processorOptions?.highpassHz || 100);
+    this.band = [biquad('highpass', sampleRate, 300), biquad('lowpass', sampleRate, 3400)];
     this.prev = 0;
     this.pos = 0;
     this.levelSum = 0;
+    this.bandSum = 0;
     this.levelCount = 0;
     this.levelEvery = Math.round(sampleRate / 20);
+    this.port.onmessage = ({ data }) => {
+      if (data.type === 'highpass') this.setHighpass(data.hz);
+    };
+  }
+
+  // İki kademe (24 dB/oktav); filtre durumu korunur ki frekans değişince çıt sesi olmasın.
+  setHighpass(hz) {
+    this.highpass = [0, 1].map((i) => biquad('highpass', sampleRate, hz, Math.SQRT1_2, this.highpass?.[i]));
   }
 
   push(sample) {
@@ -55,14 +65,19 @@ class PcmCapture extends AudioWorkletProcessor {
     if (!input) return true;
     for (let i = 0; i < input.length; i++) {
       const raw = input[i];
+      let x = raw;
+      for (const f of this.highpass) x = filter(f, x);
+      let band = raw;
+      for (const f of this.band) band = filter(f, band);
       this.levelSum += raw * raw;
+      this.bandSum += band * band;
       if (++this.levelCount >= this.levelEvery) {
-        this.port.postMessage({ type: 'level', rms: Math.sqrt(this.levelSum / this.levelCount) });
+        this.port.postMessage({ type: 'level', rms: Math.sqrt(this.levelSum / this.levelCount), speech: Math.sqrt(this.bandSum / this.levelCount) });
         this.levelSum = 0;
+        this.bandSum = 0;
         this.levelCount = 0;
       }
-      let x = raw;
-      for (const f of this.filters) x = filter(f, x);
+      for (const f of this.lowpass) x = filter(f, x);
       // Doğrusal ara değerleme: önceki örnek (0) ile bu örnek (1) arasına düşen çıkış örnekleri.
       while (this.pos <= 1) {
         this.push(this.prev + (x - this.prev) * this.pos);

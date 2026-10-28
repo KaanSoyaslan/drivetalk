@@ -72,7 +72,7 @@ function liveRules(settings) {
     settings.lookups
       ? '- Use your tools for current information (weather, news, exchange rates) and for facts you are not sure about; never guess current information. You may say "Let me check." first. Never read out sources, links or brackets.'
       : '- You cannot check live information. If asked about current things like today\'s weather or news, say you can\'t check that right now.',
-    '- Call give_feedback when the learner asks for feedback or how they are doing; vocabulary_quiz when they want to practise vocabulary (then ask them to use each phrase in a sentence, one at a time, and call record_quiz_answer after each answer); pause_session when they ask you to wait or pause; end_session when they want to stop or say goodbye.',
+    '- Call give_feedback when the learner asks for feedback or how they are doing; vocabulary_quiz when they want to practise vocabulary (then ask them to use each phrase in a sentence, one at a time, and call record_quiz_answer after each answer); change_volume when they can\'t hear you well or ask you to be louder or quieter; pause_session when they ask you to wait or pause; end_session when they want to stop or say goodbye.',
     '- Messages that start with [App] come from the app, not from the learner. Follow them and never mention them.',
   ];
 }
@@ -248,6 +248,11 @@ const SESSION_TOOLS = [
     name: 'record_quiz_answer',
     description: 'Save the result of one vocabulary quiz question.',
     parameters: { type: 'object', properties: { phrase: { type: 'string' }, correct: { type: 'boolean' } }, required: ['phrase', 'correct'] },
+  },
+  {
+    name: 'change_volume',
+    description: 'Make your voice louder or quieter. Call when the learner says they can\'t hear you well, or asks you to be louder or quieter.',
+    parameters: { type: 'object', properties: { direction: { type: 'string', enum: ['up', 'down'] } }, required: ['direction'] },
   },
   { name: 'pause_session', description: 'Pause the practice when the learner asks you to wait, pause or hold on.' },
   { name: 'end_session', description: 'End the practice session when the learner says goodbye or wants to stop.' },

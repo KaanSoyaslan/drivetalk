@@ -16,10 +16,16 @@ const joinText = (a, b) => [a, b].filter(Boolean).join(' ').replace(/\s+/g, ' ')
 // Öğrencinin bir konuşma sırasını dinler. Android'de tanıma her sessizlikte kendiliğinden
 // durduğu için sürekli yeniden başlatılır; cümle ortasında düşünmek için durursa
 // graceMs boyunca devam etmesi beklenir, sonra metin tek parça olarak döner.
+// Yol uğultusunda tanıyıcı cümlenin bittiğini anlamayabilir (hep "konuşuyor" sanar): duyulan
+// yazı bu kadar süre değişmezse cümle bitmiş sayılır.
+const STALL_EXTRA_MS = 1800;
+
 export class Listener {
-  constructor({ lang = 'en-US', graceMs = 1500 } = {}) {
+  // onStall: cümle gürültü yüzünden kendiliğinden bitmeyip yazı durunca gönderildiğinde çağrılır.
+  constructor({ lang = 'en-US', graceMs = 1500, onStall = () => {} } = {}) {
     this.lang = lang;
     this.graceMs = graceMs;
+    this.onStall = onStall;
     this.job = null;
   }
 
@@ -35,6 +41,7 @@ export class Listener {
       let graceTimer = 0;
       let silenceTimer = 0;
       let restartTimer = 0;
+      let stallTimer = 0;
       let quickFails = 0;
 
       const finish = (value, error) => {
@@ -43,6 +50,7 @@ export class Listener {
         clearTimeout(graceTimer);
         clearTimeout(silenceTimer);
         clearTimeout(restartTimer);
+        clearTimeout(stallTimer);
         if (rec) {
           rec.onresult = rec.onerror = rec.onend = null;
           try { rec.abort(); } catch { /* zaten durmuş */ }
@@ -78,11 +86,19 @@ export class Listener {
             else interim += result[0].transcript;
           }
           segment = finalText.trim();
+          const before = heardNow;
           heardNow = joinText(segment, interim);
           if (heardNow) {
             clearTimeout(graceTimer);
             armSilence();
             quickFails = 0;
+          }
+          if (heardNow && heardNow !== before) {
+            clearTimeout(stallTimer);
+            stallTimer = setTimeout(() => {
+              this.onStall();
+              finish(joinText(buffer, heardNow));
+            }, Math.max(this.graceMs, 700) + STALL_EXTRA_MS);
           }
           onInterim(joinText(buffer, heardNow));
         };
@@ -101,6 +117,7 @@ export class Listener {
         rec.onend = () => {
           if (job.done) return;
           // Bazı Android sürümleri son sonucu "final" işaretlemeden bitiriyor; ara metni de say.
+          clearTimeout(stallTimer);
           const got = segment || heardNow;
           if (got) {
             buffer = joinText(buffer, got);

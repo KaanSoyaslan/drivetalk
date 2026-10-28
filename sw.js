@@ -1,5 +1,5 @@
 // Uygulama dosyalarını önbelleğe alır; önce ağdan dener ki güncellemeler hemen gelsin.
-const CACHE = 'drivetalk-v7';
+const CACHE = 'drivetalk-v8';
 const ASSETS = [
   './',
   'index.html',
@@ -18,6 +18,7 @@ const ASSETS = [
   'js/characters.js',
   'js/devices.js',
   'js/juice.js',
+  'js/noise.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',

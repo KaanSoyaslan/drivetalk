@@ -1,6 +1,7 @@
 // Direksiyondaki ya da Bluetooth kulaklıktaki medya tuşları: oynat/duraklat, ileri, geri.
 // Tuşların Chrome'a gelmesi için sayfanın medya çalıyor olması gerekir; bunun için oturum
-// boyunca döngüde sessiz bir ses dosyası çalınır. Araç ekranında "DriveTalk" yazar.
+// boyunca döngüde sessiz bir ses dosyası çalınır. Araç ekranında (müzik olarak çalarken) uygulama adı,
+// karakter ve konu yazar; telefon görüşmesi gibi çalarken arayan adını Android belirler.
 const DEBOUNCE_MS = 400;
 
 function silentWav(seconds = 2, rate = 8000) {
@@ -38,8 +39,9 @@ export class MediaKeys {
     return 'mediaSession' in navigator;
   }
 
-  // handlers: { playPause, next, previous }. Başla'ya basılınca (kullanıcı hareketiyle) çağrılmalı.
-  start(handlers) {
+  // handlers: { playPause, next, previous }, info: { title, artist, album }.
+  // Başla'ya basılınca (kullanıcı hareketiyle) çağrılmalı.
+  start(handlers, info = {}) {
     if (!this.supported) return;
     this.active = true;
     if (!this.audio) {
@@ -48,9 +50,13 @@ export class MediaKeys {
     }
     this.audio.play().catch((err) => console.warn('Medya tuşları için ses başlatılamadı:', err));
     navigator.mediaSession.metadata = new MediaMetadata({
-      title: 'DriveTalk',
-      artist: 'English practice with Sam',
-      artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
+      title: info.title || 'DriveTalk',
+      artist: info.artist || 'English practice',
+      album: info.album || '',
+      artwork: [
+        { src: 'icons/icon-192.png', sizes: '192x192', type: 'image/png' },
+        { src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' },
+      ],
     });
     const press = (fn) => () => {
       const now = Date.now();
