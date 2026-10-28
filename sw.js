@@ -1,5 +1,5 @@
 // Uygulama dosyalarını önbelleğe alır; önce ağdan dener ki güncellemeler hemen gelsin.
-const CACHE = 'drivetalk-v6';
+const CACHE = 'drivetalk-v7';
 const ASSETS = [
   './',
   'index.html',
@@ -17,10 +17,12 @@ const ASSETS = [
   'js/media-keys.js',
   'js/characters.js',
   'js/devices.js',
+  'js/juice.js',
   'manifest.webmanifest',
   'icons/icon.svg',
   'icons/icon-192.png',
   'icons/icon-512.png',
+  'icons/icon-maskable-512.png',
 ];
 
 self.addEventListener('install', (event) => {

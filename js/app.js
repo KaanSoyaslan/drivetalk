@@ -14,6 +14,7 @@ import { MockLiveSocket } from './live-mock.js';
 import { MediaKeys } from './media-keys.js';
 import { CHARACTERS, characterOf, characterSVG } from './characters.js';
 import { AudioTest, canListDevices, canPickSpeaker, listDevices, micName, resolveDevice } from './devices.js';
+import { installTouchFeedback, animateSheets, stagger, replay, burst } from './juice.js';
 import { parseCommand } from './commands.js';
 
 const $ = (id) => document.getElementById(id);
@@ -77,10 +78,17 @@ function stateHint(name) {
   }
 }
 
+// Balon boşken yazı gelince kayarak belirir; yazı aktıkça yeniden oynamaz.
+function setBubble(node, text) {
+  if (!node.textContent && text) replay(node, 'enter');
+  node.textContent = text;
+}
+
 // Durum hem sahneye (renkler), hem karaktere (pozlar), hem sayfaya (kenar göstergesinin rengi) yazılır.
 const ui = {
   current: 'idle',
   state(name, hint) {
+    if (name !== this.current) replay(document.querySelector('.state-pill'), 'bump');
     this.current = name;
     $('live').dataset.state = name;
     $('stageCharacter').dataset.state = name;
@@ -88,8 +96,8 @@ const ui = {
     $('orbLabel').textContent = name === 'speaking' ? `${characterOf(settings).name} konuşuyor` : STATE_LABELS[name];
     $('orbHint').textContent = hint ?? stateHint(name);
   },
-  partner(text) { $('partnerLine').textContent = text; },
-  interim(text) { $('interim').textContent = text; },
+  partner(text) { setBubble($('partnerLine'), text); },
+  interim(text) { setBubble($('interim'), text); },
   tip(text) { $('tipLine').textContent = text; },
   error(text) { $('errorLine').textContent = text; },
 };
@@ -1114,6 +1122,7 @@ function renderSegments() {
         saveSettings(settings);
         fillSettingsForm();
         refreshSetup();
+        $(id).querySelector('.active')?.classList.add('picked');
       },
     }, label)));
   }
@@ -1136,6 +1145,7 @@ function refreshSetup() {
   if ($('homeCharacter').dataset.character !== character.id) {
     $('homeCharacter').dataset.character = character.id;
     $('homeCharacter').innerHTML = characterSVG(character);
+    replay($('homeCharacter'), 'swap-in');
   }
   renderSegments();
 }
@@ -1152,6 +1162,7 @@ for (const sheet of document.querySelectorAll('dialog.sheet')) {
   sheet.addEventListener('click', (e) => { if (e.target === sheet) sheet.close(); });
   for (const button of sheet.querySelectorAll('[data-close]')) button.addEventListener('click', () => sheet.close());
 }
+animateSheets(document.querySelectorAll('dialog.sheet'));
 
 $('charButton').addEventListener('click', () => { renderCharacters(); openSheet('characterSheet'); });
 $('topicButton').addEventListener('click', () => { renderTopics(); openSheet('topicSheet'); });
@@ -1177,6 +1188,7 @@ function renderCharacters() {
       },
     }, preview, el('b', {}, character.name), el('small', {}, character.desc), el('span', { class: 'voice' }, `Canlı mod sesi: ${voice.split(' – ')[0]}`));
   }));
+  stagger($('characterList').children);
 }
 
 function startSession({ forceClassic = false } = {}) {
@@ -1256,6 +1268,7 @@ function renderTopics() {
   $('topicChips').replaceChildren(...TOPIC_GROUPS.map(([group, label]) => el('div', { class: 'topic-group' },
     el('p', { class: 'group-label' }, label),
     el('div', { class: 'chip-wrap' }, TOPICS.filter((t) => t.group === group).map(chip)))));
+  stagger($('topicChips').querySelectorAll('.chip'));
 }
 
 $('customTopic').value = settings.customTopic;
@@ -1269,7 +1282,10 @@ $('customTopic').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') $('topicSheet').close();
 });
 
-$('startBtn').addEventListener('click', () => startSession());
+$('startBtn').addEventListener('click', () => {
+  if (!session?.active) burst($('startBtn'));
+  startSession();
+});
 $('endBtn').addEventListener('click', () => session?.requestEnd());
 $('pauseBtn').addEventListener('click', () => session?.togglePause());
 $('orb').addEventListener('click', () => session?.tapOrb());
@@ -1337,6 +1353,7 @@ function renderHistory() {
         el('span', { class: 'stat-chip' }, `${issues} düzeltme`),
         el('span', { class: 'stat-chip' }, s.level)));
   }));
+  stagger(list.querySelectorAll('.session-card'));
 }
 
 function issueCard(issue) {
@@ -1536,6 +1553,7 @@ function renderProgress() {
   $('vocabList').replaceChildren(...(vocab.length
     ? vocab.map(vocabItem)
     : [el('li', { class: 'empty-item' }, 'Henüz ifade yok. Oturum özetlerinden otomatik dolar; yukarıdan kendin de ekleyebilirsin.')]));
+  for (const group of [$('progressStats').querySelectorAll('.tile'), $('progressStats').querySelectorAll('.bar-col'), $('progressStats').querySelectorAll('.hbar-row')]) stagger(group);
 }
 
 $('vocabForm').addEventListener('submit', (e) => {
@@ -1734,6 +1752,8 @@ $('clearHistory').addEventListener('click', () => {
 
 // ---------- Başlangıç ----------
 
+installTouchFeedback();
+stagger($('setup').children);
 renderTopics();
 fillVoices();
 speaker.onVoicesChanged(fillVoices);

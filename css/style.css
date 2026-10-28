@@ -209,9 +209,15 @@ dialog.sheet {
   border-radius: 24px 24px 0 0; background: var(--bg-elev); color: var(--text);
   box-shadow: 0 -10px 40px rgba(0, 0, 0, .35);
 }
-dialog.sheet[open] { animation: sheet-up .24s ease-out; }
-@keyframes sheet-up { from { transform: translateY(48px); } to { transform: none; } }
+dialog.sheet[open] { animation: sheet-up .4s cubic-bezier(.22, 1, .36, 1); }
+dialog.sheet.closing { animation: sheet-down .22s ease-in forwards; }
+@keyframes sheet-up { from { transform: translateY(100%); } }
+@keyframes sheet-down { to { transform: translateY(100%); } }
 dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
+dialog.sheet[open]::backdrop { animation: fade-in .3s ease-out; }
+dialog.sheet.closing::backdrop { animation: fade-out .22s ease-in forwards; }
+@keyframes fade-in { from { opacity: 0; } }
+@keyframes fade-out { to { opacity: 0; } }
 .sheet-body { padding: 8px 16px calc(20px + env(safe-area-inset-bottom)); }
 .sheet-grip { width: 40px; height: 5px; border-radius: 3px; background: var(--border-strong); margin: 4px auto 12px; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
@@ -396,24 +402,23 @@ dialog.sheet::backdrop { background: rgba(5, 7, 12, .6); }
   .char-all, .char-eyes, .blink-light, .char-think circle, .character[data-state=idle] .hand-r { animation: none; }
 }
 
-/* ---------- Ekran kenarı ses göstergesi ---------- */
-.edge-meter { position: fixed; top: 0; bottom: 0; width: 12px; z-index: 5; pointer-events: none; display: none; }
+/* ---------- Ekran kenarı ses göstergesi ----------
+   Her kenarda tek parça bir çubuk; aşağıdan yukarı --level kadar dolar (JS her karede günceller).
+   Rengi sesin şiddetiyle değişir: senin sesin camgöbeği → yeşil → sarı → kırmızı,
+   karakterin sesi mavi → mor → pembe. */
+.edge-meter { position: fixed; top: 0; bottom: 0; width: 10px; z-index: 5; pointer-events: none; display: none; }
 body.in-session .edge-meter { display: block; }
 .edge-meter.left { left: 0; }
 .edge-meter.right { right: 0; }
-.edge-meter::before, .edge-meter span {
-  content: ''; position: absolute; inset: 0;
-  -webkit-mask: repeating-linear-gradient(to top, #000 0 14px, transparent 14px 18px);
-  mask: repeating-linear-gradient(to top, #000 0 14px, transparent 14px 18px);
-}
-.edge-meter::before { background: var(--surface-3); opacity: .35; }
+.edge-meter::before { content: ''; position: absolute; inset: 0; background: var(--surface-3); opacity: .3; }
 .edge-meter span {
-  --meter-color: var(--listening);
-  background: linear-gradient(to top, var(--meter-color), color-mix(in srgb, var(--meter-color) 55%, #fff));
-  transform-origin: bottom; transform: scaleY(var(--level, 0));
-  box-shadow: 0 0 16px var(--meter-color);
+  --hue: calc(195 - var(--level, 0) * 195);
+  --meter-color: hsl(var(--hue) 92% 56%);
+  position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--level, 0) * 100%);
+  background: linear-gradient(to top, var(--meter-color), hsl(var(--hue) 100% 74%));
+  box-shadow: 0 0 calc(8px + var(--level, 0) * 22px) var(--meter-color);
 }
-body[data-state=speaking] .edge-meter span { --meter-color: var(--speaking); }
+body[data-state=speaking] .edge-meter span { --hue: calc(235 + var(--level, 0) * 95); }
 .edge-meter.left span, .edge-meter.left::before { border-radius: 0 6px 6px 0; }
 .edge-meter.right span, .edge-meter.right::before { border-radius: 6px 0 0 6px; }
 
@@ -584,3 +589,149 @@ body[data-state=speaking] .edge-meter span { --meter-color: var(--speaking); }
 .settings-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
 .focus-list { margin: 0; padding-left: 18px; color: var(--text-2); }
 .saved { color: var(--good); min-height: 1.4em; text-align: center; font-weight: 600; margin: 12px 0 0; }
+
+/* ---------- Hareket ve dokunma hissi ----------
+   Basınca yaylanan düğmeler, dokunma dalgası (juice.js), sırayla beliren listeler ve geçişler.
+   Hepsi transform/opacity ile çalışır; "hareketi azalt" açıksa kapanır. */
+:root {
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+}
+@keyframes rise { from { opacity: 0; transform: translateY(14px); } }
+@keyframes pop-in { from { opacity: 0; transform: scale(.6); } }
+@keyframes drop-in { from { opacity: 0; transform: translateY(-12px); } }
+
+/* Basınca küçülüp yayla geri gelme */
+.btn, .btn-primary, .btn-control, .picker, .chip, .char-card, .segmented button, .session-card, .sheet-close, .home-char, .stage-char, .link-btn {
+  transition: transform .45s var(--spring), background-color .2s, border-color .2s, color .2s, box-shadow .25s, opacity .2s;
+}
+:is(.btn, .btn-control, .picker, .chip, .char-card, .segmented button, .session-card, .sheet-close, .link-btn):active:not(:disabled) {
+  transform: scale(.95); transition-duration: .1s;
+}
+.btn-primary:active:not(:disabled) { transform: scale(.94); transition-duration: .1s; }
+.home-char:active, .stage-char:active { transform: scale(.94); transition-duration: .12s; }
+@media (hover: hover) {
+  .picker:hover, .char-card:hover, .session-card:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .btn-primary:hover:not(:disabled) { transform: translateY(-2px); }
+}
+
+/* Dokunma dalgası */
+.btn, .btn-primary, .btn-control, .picker, .chip, .char-card, .segmented button, .session-card, .sheet-close { position: relative; overflow: hidden; }
+.ripple {
+  position: absolute; border-radius: 50%; pointer-events: none;
+  background: currentColor; opacity: .2; transform: scale(0);
+  animation: ripple .6s var(--ease-out) forwards;
+}
+.btn-primary .ripple { background: #fff; opacity: .4; }
+@keyframes ripple { to { transform: scale(1); opacity: 0; } }
+
+/* Seçici kartlar: ikon döner, ok sağa kayar */
+.picker-icon, .picker > .icon { transition: transform .45s var(--spring); }
+.picker:active .picker-icon { transform: scale(.86) rotate(-10deg); transition-duration: .12s; }
+.picker:active > .icon { transform: translateX(4px); transition-duration: .12s; }
+
+/* Başla: akan renk, parlama, nefes alan hale, zıplayan mikrofon ve ses çubukları */
+.start-btn {
+  isolation: isolate; height: 66px; gap: 12px; font-size: 19px;
+  background: linear-gradient(115deg, var(--accent-strong) 0%, var(--accent) 30%, #a48bff 50%, var(--accent) 70%, var(--accent-strong) 100%) 0 50% / 300% 100%;
+  animation: start-flow 7s ease-in-out infinite, start-halo 2.6s ease-out infinite;
+}
+.start-btn::after {
+  content: ''; position: absolute; inset: 0; z-index: -1; pointer-events: none;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .4) 47%, rgba(255, 255, 255, .1) 55%, transparent 68%);
+  transform: translateX(-110%); animation: start-shine 4.5s ease-in-out 1.2s infinite;
+}
+@keyframes start-flow { 50% { background-position: 100% 50%; } }
+@keyframes start-halo {
+  0% { box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 38%, transparent), 0 0 0 0 color-mix(in srgb, var(--accent) 55%, transparent); }
+  70%, 100% { box-shadow: 0 12px 28px color-mix(in srgb, var(--accent) 38%, transparent), 0 0 0 16px transparent; }
+}
+@keyframes start-shine { 0%, 50% { transform: translateX(-110%); } 85%, 100% { transform: translateX(110%); } }
+.start-icon { position: relative; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: rgba(255, 255, 255, .2); }
+.start-icon::before {
+  content: ''; position: absolute; inset: 0; border-radius: inherit; border: 2px solid rgba(255, 255, 255, .65);
+  animation: mic-ring 2.2s ease-out infinite;
+}
+.start-icon .icon { animation: mic-bob 2.2s ease-in-out infinite; }
+@keyframes mic-ring { to { transform: scale(1.7); opacity: 0; } }
+@keyframes mic-bob { 12% { transform: translateY(-2px) rotate(-10deg); } 26% { transform: rotate(8deg); } 40% { transform: none; } }
+.start-eq { display: inline-flex; align-items: center; gap: 3px; height: 20px; }
+.start-eq i { width: 4px; height: 100%; border-radius: 2px; background: rgba(255, 255, 255, .85); animation: eq 1s ease-in-out infinite; }
+.start-eq i:nth-child(2) { animation-delay: -.35s; }
+.start-eq i:nth-child(3) { animation-delay: -.7s; }
+.start-eq i:nth-child(4) { animation-delay: -.15s; }
+@keyframes eq { 0%, 100% { transform: scaleY(.3); } 50% { transform: scaleY(1); } }
+.start-btn:disabled, .start-btn:disabled::after, .start-btn:disabled .start-icon::before, .start-btn:disabled .icon, .start-btn:disabled .start-eq i { animation: none; }
+.start-btn:disabled .start-icon::before { opacity: 0; }
+.start-btn:disabled .start-eq i { transform: scaleY(.3); }
+
+/* Başla'ya basınca ekrana yayılan renk dalgası */
+.launch-burst {
+  position: fixed; z-index: 60; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, color-mix(in srgb, var(--accent) 70%, #fff), var(--accent-strong));
+  animation: launch .65s var(--ease-out) forwards;
+}
+@keyframes launch { 0% { transform: scale(.2); opacity: .95; } 55% { opacity: .5; } 100% { transform: scale(45); opacity: 0; } }
+
+/* Ekranlar ve ana ekran sırayla belirir */
+.view.active { animation: fade-in .3s ease-out; }
+.home > * { animation: rise .55s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 60ms); }
+.character.swap-in { animation: swap-in .65s var(--spring); }
+@keyframes swap-in { 0% { opacity: 0; transform: scale(.5) rotate(-10deg); } 60% { opacity: 1; transform: scale(1.06) rotate(3deg); } }
+.home-char .char-change { animation: nudge 7s ease-in-out 3s infinite; }
+@keyframes nudge { 0%, 88%, 100% { transform: none; } 91% { transform: rotate(-7deg) scale(1.06); } 94% { transform: rotate(6deg) scale(1.06); } 97% { transform: rotate(-3deg); } }
+
+/* Paneller: kartlar ve konular sırayla gelir */
+.char-grid .char-card { animation: rise .45s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 45ms + 80ms); }
+.char-card.selected { box-shadow: 0 0 0 4px var(--accent-soft); }
+.chip-wrap .chip { animation: pop-in .4s var(--spring) backwards; animation-delay: calc(var(--i, 0) * 22ms + 60ms); }
+.segmented button.picked { animation: seg-pop .45s var(--spring); }
+@keyframes seg-pop { 0% { transform: scale(.88); } 60% { transform: scale(1.04); } }
+
+/* Alt menü: seçilen sekmenin hapı yayla açılır, ikon zıplar */
+.tab-icon { position: relative; isolation: isolate; transition: transform .45s var(--spring); }
+.tab-icon::before {
+  content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: var(--accent-soft);
+  transform: scaleX(.3); opacity: 0; transition: transform .45s var(--spring), opacity .2s;
+}
+.tabs button.active .tab-icon { background: transparent; }
+.tabs button.active .tab-icon::before { transform: none; opacity: 1; }
+.tabs button.active .tab-icon .icon { animation: icon-hop .5s var(--spring); }
+.tabs button:active .tab-icon { transform: scale(.86); transition-duration: .1s; }
+@keyframes icon-hop { 35% { transform: translateY(-4px) scale(1.12); } }
+
+/* Anahtarlar: düğme yayla kayar, basınca uzar */
+.switch::after { transition: transform .4s var(--spring), width .2s var(--ease-out); }
+.switch:active:not(:disabled)::after { width: 26px; }
+.switch:checked:active:not(:disabled)::after { transform: translateX(14px); }
+.saved:not(:empty) { animation: pop-in .35s var(--spring); }
+
+/* Sohbet sahnesi */
+#live .stage-top { animation: drop-in .45s var(--ease-out) backwards; }
+#live .stage-char { animation: pop-in .6s var(--spring) .05s backwards; }
+#live .controls { animation: rise .5s var(--ease-out) .15s backwards; }
+.state-pill.bump { animation: bump .45s var(--spring); }
+@keyframes bump { 40% { transform: scale(1.08); } }
+.bubble.enter { animation: bubble-in .4s var(--spring); }
+@keyframes bubble-in { from { opacity: 0; transform: translateY(10px) scale(.96); } }
+#pauseBtn .icon { animation: icon-pop .4s var(--spring); }
+@keyframes icon-pop { from { opacity: 0; transform: scale(.4) rotate(-30deg); } }
+#pauseBtn.is-paused { animation: soft-pulse 2s ease-in-out infinite; }
+@keyframes soft-pulse { 50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--listening) 20%, transparent); } }
+
+/* Geçmiş ve ilerleme: kartlar sırayla, çubuklar büyüyerek gelir */
+.session-card { animation: rise .45s var(--ease-out) backwards; animation-delay: calc(min(var(--i, 0), 10) * 50ms); }
+.tiles .tile { animation: rise .45s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 60ms); }
+.bar { transform-origin: bottom; animation: grow-y .7s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 50ms + 150ms); }
+.hbar { transform-origin: left; animation: grow-x .7s var(--ease-out) backwards; animation-delay: calc(var(--i, 0) * 60ms + 200ms); }
+@keyframes grow-y { from { transform: scaleY(0); } }
+@keyframes grow-x { from { transform: scaleX(0); } }
+
+/* Üst çubuktaki logo: gözler kırpar, anten ışığı yanıp söner (oturumda daha hızlı) */
+.logo-eyes { transform-box: fill-box; transform-origin: center; animation: blink 6s infinite; }
+.logo-bulb { animation: antenna 2.4s ease-in-out infinite; }
+body.in-session .logo-bulb { animation-duration: .9s; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-delay: 0s !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

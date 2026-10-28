@@ -50,7 +50,7 @@ It runs entirely in the phone's browser. There is no server, no account and no c
 
 **Built for the car**
 - Fully voice-controlled. The reply comes automatically when you stop talking.
-- Sound meters along both edges of the screen show at a glance that your voice is coming through.
+- A glowing bar along each edge of the screen rises with the sound and changes colour with its loudness (your voice: cyan → green → yellow → red; the character: blue → purple → pink), so you can see at a glance that your voice is coming through.
 - **Microphone choice (Live mode):** use the phone's own microphone instead of the car's Bluetooth one (or any other), test it with a level meter and a chime, and the choice is saved.
 - Steering-wheel and headset media buttons: play/pause, next topic, repeat.
 - Keeps the screen awake and reconnects automatically after a lost connection.
@@ -101,6 +101,7 @@ Then open <http://localhost:8080>.
 | `js/app.js` | Session flow (Classic and Live), screens, progress, settings |
 | `js/live.js` | Gemini Live client: audio streaming, playback, end-of-speech fallback, reconnection |
 | `js/devices.js` | Microphone and speaker choice, audio test |
+| `js/juice.js` | Touch feedback: ripples, haptics, sheet and list animations |
 | `js/pcm-worklet.js` | Converts microphone audio to 16 kHz PCM |
 | `js/tutor.js` | Prompts for the partner, coach, quiz and summary; topics |
 | `js/characters.js` | Characters: look, personality, voice and animation rig |
@@ -161,7 +162,7 @@ Sunucu, hesap ya da ücret yok. Sohbetler, kendi anahtarınla Google Gemini API'
 
 **Araba için tasarlandı**
 - Tamamen sesle kontrol edilir. Sustuğunda cevap kendiliğinden gelir.
-- Ekranın iki kenarındaki ses göstergesi, sesinin gittiğini göz ucuyla gösterir.
+- Ekranın iki kenarındaki parlayan çubuk sesle yükselir ve sesin şiddetine göre renk değiştirir (senin sesin: camgöbeği → yeşil → sarı → kırmızı; karakterin: mavi → mor → pembe). Sesinin gittiğini göz ucuyla görürsün.
 - **Mikrofon seçimi (Canlı mod):** Arabanın Bluetooth mikrofonu yerine telefonun kendi mikrofonunu (ya da başka birini) seç, seviye göstergesi ve zil sesiyle dene; seçimin saklanır.
 - Direksiyon ve kulaklık tuşları: duraklat/devam, yeni konu, tekrar.
 - Ekranı açık tutar, bağlantı koparsa kendiliğinden yeniden bağlanır.
